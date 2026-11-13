@@ -51,8 +51,8 @@ const BUILT_IN: Record<Setting, boolean> = { listening: true, trust: false, plai
 const defaults: Record<Setting, boolean> = { ...BUILT_IN }
 // Background runs, as config.json has them: the chat starting Claude Code by
 // itself. For every session at once, and off until the person turns them on.
-type Runs = { isEnabled: boolean; folders: readonly string[]; hasCode: boolean }
-let runs: Runs = { isEnabled: false, folders: [], hasCode: false }
+type Runs = { isEnabled: boolean; folders: readonly string[]; hasCode: boolean; isAuto: boolean }
+let runs: Runs = { isEnabled: false, folders: [], hasCode: false, isAuto: false }
 // A line under the runs settings saying why a change was not made.
 let runsNote = ''
 let sessionFolder = ''
@@ -236,7 +236,7 @@ function summary(): string {
   return `chat-bridge is on as "${heldName ?? 'session'}"${isTrusted ? ', trusted' : ', asking before each action of a relayed message'}${isPlain ? ', plain messages' : ''}.`
 }
 
-type RawRuns = { enabled?: unknown; folders?: unknown; code?: unknown; codeHash?: unknown; salt?: unknown }
+type RawRuns = { enabled?: unknown; folders?: unknown; code?: unknown; codeHash?: unknown; salt?: unknown; mode?: unknown }
 type RawConfig = { runs?: RawRuns }
 
 async function readConfig($: EngineInterface): Promise<RawConfig> {
@@ -255,7 +255,7 @@ function folderList(raw: RawRuns): string[] {
 async function loadRuns($: EngineInterface): Promise<void> {
   const raw = (await readConfig($)).runs ?? {}
   const hasCode = (typeof raw.code === 'string' && raw.code !== '') || typeof raw.codeHash === 'string'
-  runs = { isEnabled: raw.enabled === true && hasCode, folders: folderList(raw), hasCode }
+  runs = { isEnabled: raw.enabled === true && hasCode, folders: folderList(raw), hasCode, isAuto: raw.mode === 'auto' }
 }
 
 // Reads the file again before each change: the connector rewrites it too,
@@ -281,6 +281,15 @@ async function toggleRuns($: EngineInterface): Promise<void> {
   await changeRuns($, raw => ({ ...raw, enabled: isEnabled }))
 }
 
+// Who decides a run's actions: the person, by approval code ('ask', the
+// default), or Claude Code's auto mode alone.
+async function toggleRunMode($: EngineInterface): Promise<void> {
+  await loadRuns($)
+  const mode = runs.isAuto ? 'ask' : 'auto'
+  runsNote = ''
+  await changeRuns($, raw => ({ ...raw, mode }))
+}
+
 async function setCode($: EngineInterface, typed: string): Promise<void> {
   const code = typed.trim()
   if (code.length < 4) {
@@ -291,7 +300,7 @@ async function setCode($: EngineInterface, typed: string): Promise<void> {
   }
   runsNote = 'Approval code saved.'
   // The connector keeps only a salted hash of it from its next read on.
-  await changeRuns($, raw => ({ enabled: raw.enabled, folders: raw.folders, code }))
+  await changeRuns($, raw => ({ enabled: raw.enabled, folders: raw.folders, mode: raw.mode, code }))
 }
 
 async function allowFolder($: EngineInterface, folder: string, isAllowed: boolean): Promise<void> {
@@ -390,8 +399,24 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
         </Box>
         <Text dimColor>
           {runs.isEnabled
-            ? 'The chat can start Claude Code by itself, unattended, in the folders below. Anything it will not decide alone waits for your approval code in the chat.'
+            ? 'The chat can start Claude Code by itself, unattended, in the folders below.'
             : 'Off: the chat can only talk to sessions you opened. On lets it start Claude Code by itself in folders you allow.'}
+        </Text>
+      </Box>
+      <Box flexDirection="column">
+        <Box gap={1}>
+          <Text bold>A run's actions are decided by</Text>
+          <Button
+            key="toggle-run-mode"
+            label={runs.isAuto ? 'Auto mode' : 'You'}
+            variant={runs.isAuto ? 'secondary' : 'primary'}
+            onPress={() => toggleRunMode($)}
+          />
+        </Box>
+        <Text dimColor>
+          {runs.isAuto
+            ? 'Auto mode: Claude Code decides alone and asks nobody. It does what the message asks, deleting included, if that looks like the task.'
+            : 'You: every action that is not a read waits in the chat until you type your approval code.'}
         </Text>
       </Box>
       <Box flexDirection="column">

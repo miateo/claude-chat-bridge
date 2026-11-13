@@ -235,6 +235,16 @@ test('background runs stay off until a code is set, then turn on for allowed fol
   expect(config().runs.enabled).toBe(true)
   expect(config().runs.folders[0]).toBe('/work/site')
 
+  // A run's actions are the person's to approve unless they choose auto mode.
+  expect(config().runs.mode).toBe(undefined)
+  expect((await ui.find({ type: 'Button', key: 'toggle-run-mode' }))?.text).toBe('You')
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-run-mode' })
+
+  expect(config().runs.mode).toBe('auto')
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-run-mode' })
+
+  expect(config().runs.mode).toBe('ask')
+
   await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-remove-0' })
 
   expect(config().runs.folders.length).toBe(0)

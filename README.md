@@ -77,7 +77,7 @@ An option left out keeps the setting as it stands.
 
 Normally the chat can only talk to sessions you opened. With background runs on, it can also start Claude Code by itself, unattended, in folders you allowed, and get the answer back.
 
-> Not yet verified end to end. The approval path is tested in simulation; a real unattended run has not been observed. It lives on the `background-runs` branch until it has.
+> Verified on macOS with real unattended runs: a read-only run, a run stopped for approval and released by the right code (and not by a wrong one), and auto mode's behaviour described below. It stays on the `background-runs` branch while it is new.
 
 Turn it on in the settings (the bar's **Settings** button, or `/chat-bridge`), under **Background runs**:
 
@@ -90,16 +90,17 @@ It also needs the Claude Code command line signed in on the computer: run `claud
 How a run goes:
 
 - The chat calls `start_claude_code_run` with a folder and a task. A folder that is not allowed, or not inside an allowed one, is refused.
-- Claude Code runs in auto mode: its own classifier allows what looks safe and blocks what looks dangerous.
-- What auto mode leaves to a person comes back to the chat. The chat shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so this works wherever you are talking to the chat, a phone included, and does not depend on how an app draws a permission prompt.
-- The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
+- The run's actions are decided by **you** (the default) or by **auto mode**, a switch in the settings.
+- **You:** every action that is not a read stops the run and comes back to the chat, which shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so this works wherever you are talking to the chat, a phone included, and does not depend on how an app draws a permission prompt. The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
+- **Auto mode:** Claude Code's own classifier decides alone and nothing is put to you.
 
 What to know before turning it on:
 
-- **The code is a shared secret with the conversation.** Once you have typed it in a chat, that conversation holds it, and a chat that has been steered by something it read could reuse it there. Start a new chat for sensitive work, and change the code if a conversation went somewhere odd.
-- **Auto mode is a classifier, not a guarantee.** It judges actions against the task it was given, and the task is the relayed message.
+- **Auto mode does what the message asks.** It judges an action against the task, and the task is the relayed message. In testing, a run in auto mode asked to `rm -rf` a folder outside its project did so, with no question and no refusal. Auto mode is for when you would trust anything the chat might send; it is no defence against a chat that was steered by something it read.
+- **The code is a shared secret with the conversation.** Once you have typed it in a chat, that conversation holds it, and a steered chat could reuse it there. Start a new chat for sensitive work, and change the code if a conversation went somewhere odd.
 - **A run is not sandboxed.** It runs as you. The bridge refuses a run's attempts to read or change its own files, and Claude Code is told to deny them, but that is a rule, not a wall.
 - **Reads are not gated**, as with sessions: a run can read what is in its reach and the answer goes back to the chat.
+- **Runs cost usage** on your Claude account like any other Claude Code session.
 
 ## Security
 
