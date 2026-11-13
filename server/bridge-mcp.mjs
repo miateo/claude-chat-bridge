@@ -164,6 +164,9 @@ const runsConfig = () => {
     salt: runs.salt,
     codeHash: runs.codeHash,
     claudePath: claudeBinary(config.claudePath),
+    // 'ask' (the default): every action that is not a read waits for the person.
+    // 'auto': Claude Code's classifier decides alone, and may ask nobody.
+    mode: runs.mode === 'auto' ? 'auto' : 'ask',
   }
 }
 
@@ -221,7 +224,38 @@ const brief = value => {
   return text.length > 1500 ? `${text.slice(0, 1500)}\n… (${text.length - 1500} more characters)` : text
 }
 
+// Settles a run from what it left on disk, so its result is found even when
+// this connector was restarted while the run went on: its one JSON line on
+// stdout is the result; a process that is gone without one has failed.
+const harvest = id => {
+  const dir = runDir(id)
+  if (readJson(join(dir, 'result.json')) !== undefined || readJson(join(dir, 'exit.json')) !== undefined) return
+  let result
+  try {
+    const lines = readFileSync(join(dir, 'stdout.log'), 'utf8').trim().split('\n')
+    result = JSON.parse(lines[lines.length - 1])
+  } catch {}
+  if (result && typeof result === 'object' && 'result' in result) {
+    writeJson(join(dir, 'result.json'), result)
+    log({ event: 'run-answer', id, text: result.result })
+    return
+  }
+  const pid = readJson(join(dir, 'run.json'))?.pid
+  let isAlive = typeof pid !== 'number'
+  try {
+    if (typeof pid === 'number') {
+      process.kill(pid, 0)
+      isAlive = true
+    }
+  } catch {}
+  if (!isAlive) {
+    writeJson(join(dir, 'exit.json'), { code: null })
+    log({ event: 'run-failed', id })
+  }
+}
+
 const runState = id => {
+  harvest(id)
   const result = readJson(join(runDir(id), 'result.json'))
   if (result) {
     const answer = typeof result.result === 'string' ? result.result : ''
@@ -254,6 +288,7 @@ const runState = id => {
 const waitForRun = async (id, waitSeconds) => {
   const until = Date.now() + Math.min(Math.max(waitSeconds, 0), MAX_WAIT_S) * 1000
   for (;;) {
+    harvest(id)
     const isSettled =
       readJson(join(runDir(id), 'result.json')) !== undefined ||
       readJson(join(runDir(id), 'exit.json')) !== undefined ||
@@ -278,7 +313,7 @@ const startRun = (folder, message, config) => {
     '-p',
     prompt,
     '--permission-mode',
-    'auto',
+    config.mode === 'auto' ? 'auto' : 'manual',
     '--permission-prompt-tool',
     'mcp__chat_bridge_gate__approve',
     '--mcp-config',
@@ -302,26 +337,11 @@ const startRun = (folder, message, config) => {
   })
   closeSync(out)
   closeSync(err)
-  const settle = code => {
-    // The run's one JSON line is its result; anything else is a failure.
-    let result
-    try {
-      const lines = readFileSync(join(dir, 'stdout.log'), 'utf8').trim().split('\n')
-      result = JSON.parse(lines[lines.length - 1])
-    } catch {}
-    if (result && typeof result === 'object' && 'result' in result) {
-      writeJson(join(dir, 'result.json'), result)
-      log({ event: 'run-answer', id, text: result.result })
-    } else {
-      writeJson(join(dir, 'exit.json'), { code })
-      log({ event: 'run-failed', id, code })
-    }
-  }
   child.on('error', error => {
     writeFileSync(join(dir, 'stderr.log'), `could not start Claude Code (${config.claudePath}): ${error.message}\n`)
-    settle(-1)
+    writeJson(join(dir, 'exit.json'), { code: -1 })
   })
-  child.on('exit', code => settle(code))
+  writeJson(join(dir, 'run.json'), { id, folder, at: Date.now(), pid: child.pid })
   child.unref()
   log({ event: 'run', id, folder, text: message })
   return id
