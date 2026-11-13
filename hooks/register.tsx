@@ -414,6 +414,10 @@ async function openBar($: EngineInterface, isOpen: boolean): Promise<void> {
 // setting's switch, and beside the lockable ones the lock that saves the
 // current value as the default for new sessions.
 function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0]) {
+  // Stacked rows take the surface's own small step between them (`sm`: none
+  // on the terminal, a few pixels on desktop, where a button is taller than a
+  // line of text and rows would otherwise touch), and a row's controls are
+  // centred on its text.
   const { Box, Button, Input, Text } = $.ui.resolve(e)
   const rows: readonly { setting: Setting; label: string; isOn: boolean; note: string }[] = [
     {
@@ -441,10 +445,10 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
   ]
 
   return (
-    <Box flexDirection="column" gap={1}>
+    <Box flexDirection="column" gap="md">
       {rows.map(row => (
-        <Box flexDirection="column">
-          <Box gap={1}>
+        <Box flexDirection="column" rowGap="sm">
+          <Box gap={1} alignItems="center">
             <Text bold>{row.label}</Text>
             <Button
               key={`toggle-${row.setting}`}
@@ -466,7 +470,7 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
           <Text dimColor>{row.note}</Text>
         </Box>
       ))}
-      <Box flexDirection="column">
+      <Box flexDirection="column" rowGap="sm">
         <Input
           key="name"
           label="Name"
@@ -480,8 +484,8 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
       <Text dimColor>
         A lock saves the setting as it is now as the default for new sessions.
       </Text>
-      <Box flexDirection="column">
-        <Box gap={1}>
+      <Box flexDirection="column" rowGap="sm">
+        <Box gap={1} alignItems="center">
           <Text bold>Background runs</Text>
           <Button
             key="toggle-runs"
@@ -496,8 +500,8 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
             : 'Off: the chat can only talk to sessions you opened. On lets it start Claude Code by itself in folders you allow.'}
         </Text>
       </Box>
-      <Box flexDirection="column">
-        <Box gap={1}>
+      <Box flexDirection="column" rowGap="sm">
+        <Box gap={1} alignItems="center">
           <Text bold>A run's actions are decided by</Text>
           <Button
             key="toggle-run-mode"
@@ -508,7 +512,7 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
         </Box>
         <Text dimColor>{RUN_MODES[runs.mode].note} Press to change.</Text>
       </Box>
-      <Box flexDirection="column">
+      <Box flexDirection="column" rowGap="sm">
         <Input
           key="run-code"
           label="Approval code"
@@ -521,11 +525,11 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
           You type it in the chat to allow an action of a background run. Keep it to yourself; it is stored only as a hash.
         </Text>
       </Box>
-      <Box flexDirection="column">
+      <Box flexDirection="column" rowGap="sm">
         <Text bold>Folders a background run may start in</Text>
         {runs.folders.length === 0 && <Text dimColor>None yet.</Text>}
         {runs.folders.map((folder, index) => (
-          <Box gap={1}>
+          <Box gap={1} alignItems="center">
             <Text>{folder}</Text>
             <Button
               key={`run-folder-remove-${index}`}
@@ -547,7 +551,7 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
           An allowed folder covers every folder inside it. These settings are for the whole computer, not this session.
         </Text>
         {isProjectFolder(sessionFolder) && !runs.folders.includes(sessionFolder) && (
-          <Box gap={1} marginTop={1}>
+          <Box gap={1} alignItems="center">
             <Button
               key="run-folder-add"
               label="Allow this session's folder"
@@ -643,8 +647,8 @@ export const register: Register = on => {
     const { Box, Button, Text } = $.ui.resolve(e)
 
     return (
-      <Box flexDirection="column" gap={isBarOpen ? 1 : 0}>
-        <Box gap={1}>
+      <Box flexDirection="column" gap={isBarOpen ? 'md' : 0}>
+        <Box gap={1} alignItems="center">
           <Text color={isListening ? 'green' : undefined} dimColor={!isListening}>
             {isListening ? '\u25CF' : '\u25CB'}
           </Text>
