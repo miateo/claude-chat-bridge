@@ -77,7 +77,7 @@ An option left out keeps the setting as it stands.
 
 Normally the chat can only talk to sessions you opened. With background runs on, it can also start Claude Code by itself, unattended, in folders you allowed, and get the answer back.
 
-> Verified on macOS with real unattended runs: a read-only run, a run stopped for approval and released by the right code (and not by a wrong one), and auto mode's behaviour described below. It stays on the `background-runs` branch while it is new.
+> Verified on macOS with real unattended runs: a read-only run, a run stopped for approval and released by the right code (and not by a wrong one), and auto mode's behaviour described below. It is new: expect rough edges.
 
 Turn it on in the settings (the bar's **Settings** button, or `/chat-bridge`), under **Background runs**:
 
