@@ -439,7 +439,7 @@ const tools = {
       if (message.length > MAX_MESSAGE_CHARS) throw new Error(`message is over ${MAX_MESSAGE_CHARS} characters`)
       const allowed = typeof folder === 'string' ? allowedFolder(folder, config.folders) : undefined
       if (allowed === undefined) {
-        throw new Error(`That folder is not allowed for background runs. Allowed: ${config.folders.join(', ') || 'none yet'}. The user allows a folder in Claude Code: /chat-bridge, "Background runs".`)
+        throw new Error(`That folder is not allowed for background runs. Allowed: ${config.folders.join(', ') || 'none yet'}. The user allows a folder in any Claude Code session: the chat-bridge Settings, "Background runs", "Add a folder" (it covers the folders inside it).`)
       }
       sweep()
       const id = startRun(allowed, message, config)

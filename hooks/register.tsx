@@ -62,6 +62,7 @@ let isBackgroundRun = false
 let isBarOpen = false
 let timer: Timer | undefined
 let isPolling = false
+let beats = 0
 let isTurnRunning = false
 let pendingId: string | undefined
 const seen = new Set<string>()
@@ -141,6 +142,9 @@ async function poll($: EngineInterface): Promise<void> {
     const cwd = await $.session.cwd()
     const name = heldName ?? 'session'
     await $.fs.write(`${dir}/listeners/${id}.json`, JSON.stringify({ id, name, cwd, at }))
+    // Every fifth beat, pick up what another session changed.
+    beats += 1
+    if (beats % 5 === 0) await refresh($)
     if (pendingId !== undefined || isTurnRunning) return
 
     const entries = await $.fs.list(`${dir}/inbox`).catch(() => [])
@@ -312,9 +316,38 @@ async function allowFolder($: EngineInterface, folder: string, isAllowed: boolea
   })
 }
 
-function openBar($: EngineInterface, isOpen: boolean): void {
+// A folder typed into the settings: "~" is the home folder, and it has to be
+// a folder that exists. Stored as the path it really is.
+async function addFolder($: EngineInterface, typed: string): Promise<void> {
+  const home = ((await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? '').replaceAll('\\', '/')
+  const text = typed.trim()
+  const path = text === '~' ? home : text.startsWith('~/') ? `${home}${text.slice(1)}` : text
+  const isAbsolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+  const stat = isAbsolute ? await $.fs.stat(path, { resolve: true }).catch(() => undefined) : undefined
+  if (stat === undefined || stat.kind !== 'dir') {
+    runsNote = `"${text}" is not a folder on this computer. Type its full path, or one starting with ~/.`
+    $.ui.invalidate('ui.render')
+
+    return
+  }
+  await allowFolder($, stat.realPath ?? path, true)
+  runsNote = `Allowed: ${stat.realPath ?? path}, and every folder inside it.`
+  $.ui.invalidate('ui.render')
+}
+
+// The settings every session shares (the saved defaults, background runs) as
+// they are on disk now: another session, or the connector, may have changed them.
+async function refresh($: EngineInterface): Promise<void> {
+  const before = JSON.stringify([defaults, runs])
+  await loadDefaults($)
+  await loadRuns($)
+  if (JSON.stringify([defaults, runs]) !== before) $.ui.invalidate('ui.render')
+}
+
+async function openBar($: EngineInterface, isOpen: boolean): Promise<void> {
   isBarOpen = isOpen
   $.ui.invalidate('ui.render')
+  if (isOpen) await refresh($)
 }
 
 // The settings themselves, drawn the same in the pane and in the bar: each
@@ -446,13 +479,25 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
             />
           </Box>
         ))}
+        <Input
+          key="run-folder-new"
+          label="Add a folder"
+          value=""
+          placeholder="~/DEV, or a full path"
+          submitLabel="allow"
+          onSubmit={value => addFolder($, value)}
+        />
         {sessionFolder !== '' && !runs.folders.includes(sessionFolder) && (
           <Button
             key="run-folder-add"
             label={`Allow this session's folder (${sessionFolder})`}
+            dimColor
             onPress={() => allowFolder($, sessionFolder, true)}
           />
         )}
+        <Text dimColor>
+          An allowed folder covers every folder inside it. These settings are for the whole computer, not this session.
+        </Text>
       </Box>
       {runsNote !== '' && <Text color="yellow">{runsNote}</Text>}
     </Box>
@@ -517,6 +562,7 @@ export const register: Register = on => {
     if (word !== '' && word !== 'menu') {
       return { text: 'chat-bridge: use /chat-bridge (the settings), /chat-bridge on [name], /chat-bridge off or /chat-bridge status.' }
     }
+    await refresh($)
     const { isPlaced } = await $.ui.open({ id: PANE, title: 'chat-bridge', focus: true })
 
     return {

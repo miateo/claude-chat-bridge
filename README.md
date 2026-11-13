@@ -82,8 +82,10 @@ Normally the chat can only talk to sessions you opened. With background runs on,
 Turn it on in the settings (the bar's **Settings** button, or `/chat-bridge`), under **Background runs**:
 
 1. Type an **approval code** of at least 4 characters and press Enter. Only you should know it.
-2. Allow at least one folder: **Allow this session's folder** adds the one you are in.
+2. Allow at least one folder: type its path under **Add a folder** (`~/DEV`, say) and press Enter. An allowed folder covers every folder inside it.
 3. Switch **Background runs** on.
+
+These settings are for the whole computer: set them once, from any session, and they hold with no session open. The desktop app has to be running, since the connector lives in it.
 
 It also needs the Claude Code command line signed in on the computer: run `claude` once in a terminal and log in.
 

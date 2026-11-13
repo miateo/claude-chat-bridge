@@ -27,6 +27,12 @@ const stage = (
     return { value: undefined }
   })
   on('fs.exists', () => ({ value: false }))
+  // /work and what is under it are folders; nothing else exists.
+  on('fs.stat', (_, e) => {
+    if (!String(e.path).startsWith('/work')) throw new Error('ENOENT')
+
+    return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } }
+  })
   on('fs.list', (_, e) => ({
     value: String(e.path).endsWith('/inbox')
       ? [{ name: 'm1.json', kind: 'file', size: 1, mtimeMs: 0, isLink: false }]
@@ -235,6 +241,14 @@ test('background runs stay off until a code is set, then turn on for allowed fol
   expect(config().runs.enabled).toBe(true)
   expect(config().runs.folders[0]).toBe('/work/site')
 
+  // Any folder can be typed in, from any session; one that is not there is not added.
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/nowhere' })
+
+  expect(config().runs.folders.length).toBe(1)
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/work' })
+
+  expect(config().runs.folders[1]).toBe('/work')
+
   // A run's actions are the person's to approve unless they choose auto mode.
   expect(config().runs.mode).toBe(undefined)
   expect((await ui.find({ type: 'Button', key: 'toggle-run-mode' }))?.text).toBe('You')
@@ -247,6 +261,6 @@ test('background runs stay off until a code is set, then turn on for allowed fol
 
   await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-remove-0' })
 
-  expect(config().runs.folders.length).toBe(0)
+  expect(config().runs.folders.length).toBe(1)
   await ui.unmount()
 })
