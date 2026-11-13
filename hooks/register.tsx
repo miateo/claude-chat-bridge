@@ -35,8 +35,8 @@ const STORE_KEY: Record<Setting, string> = {
 type Inbound = { id: string; to?: string; text: string }
 type Listener = { id: string; name: string; at: number }
 
-// All of it is the module's own, for this session alone: listening is off
-// until the person runs /chat-bridge on, and again after a restart or reload.
+// All of it is the module's own, for this session alone, and starts over
+// from the defaults at a restart or reload.
 let isListening = false
 // The name the chat addresses this session by.
 let heldName: string | undefined
@@ -44,8 +44,11 @@ let heldName: string | undefined
 let isTrusted = false
 // Submit a relayed message as typed, without the engine's frame: off unless --plain.
 let isPlain = false
-// The saved defaults as last read from `$.store`; one never saved is false.
-const defaults: Record<Setting, boolean> = { listening: false, trust: false, plain: false }
+// What a setting is where the person has saved no default of their own: a
+// session listens, asks before a relayed message's actions, and frames it.
+const BUILT_IN: Record<Setting, boolean> = { listening: true, trust: false, plain: false }
+// The defaults in force: the saved one as last read from `$.store`, else the built-in.
+const defaults: Record<Setting, boolean> = { ...BUILT_IN }
 let timer: Timer | undefined
 let isPolling = false
 let isTurnRunning = false
@@ -74,7 +77,8 @@ function current(setting: Setting): boolean {
 
 async function loadDefaults($: EngineInterface): Promise<void> {
   for (const setting of SETTINGS) {
-    defaults[setting] = (await $.store.get(STORE_KEY[setting])) === true
+    const saved = await $.store.get(STORE_KEY[setting])
+    defaults[setting] = typeof saved === 'boolean' ? saved : BUILT_IN[setting]
   }
 }
 
@@ -227,12 +231,14 @@ export const register: Register = on => {
       name: 'chat-bridge',
       description: 'Let your normal Claude chat talk to this session: on [name] [--trust] [--plain], off or status',
     })
-    // A new session starts from the saved defaults; a default of listening
-    // is the person's own choice to have every session listen.
+    // A new session starts from the defaults, so it listens unless the person
+    // saved "Listening: Off" as theirs. A run nobody sits at (`claude -p`, an
+    // SDK host) never listens by itself: nobody could approve what a relayed
+    // message asks for, or know it was listening.
     await loadDefaults($)
     isTrusted = defaults.trust
     isPlain = defaults.plain
-    if (defaults.listening) await setListening($, true)
+    if (defaults.listening && e.isInteractive) await setListening($, true)
 
     return next(e)
   })

@@ -37,11 +37,11 @@ To install only the mod, at the prompt of a terminal Claude Code session:
 
 ## Use
 
-1. In each Claude Code session that should answer, run `/chat-bridge on`, or run `/chat-bridge` and switch Listening on in the menu. The session is named after its folder; pick another name with `/chat-bridge on <name>`, for example `/chat-bridge on ads`.
+1. Open a Claude Code session. Once the mod is installed, every session you open listens by itself, named after its folder. Rename one with `/chat-bridge on <name>`, for example `/chat-bridge on ads`.
 2. In a normal chat in the desktop app, ask for example: "use chat-bridge to ask the ads session which folder it is in". With one session listening, the name can be left out.
 3. `/chat-bridge off` stops that session listening.
 
-Listening is per session. It starts only when you turn it on, unless you have made "Listening: On" your default (below), and it stops when the session or the desktop app restarts.
+Every interactive session listens from its start. To change that, run `/chat-bridge`, switch Listening off and press its lock: new sessions then stay off until you turn them on. A run nobody sits at (`claude -p`, an SDK host) never listens by itself.
 
 ### Settings menu
 
@@ -77,7 +77,7 @@ An option left out keeps the setting as it stands.
 
 A message that comes over the bridge was written by another model. If that chat has read a web page, an email or a document with instructions hidden in it, it can be steered into sending a message you never asked for, and that message then runs in a coding agent on your computer. chat-bridge is built around that risk:
 
-- **Off by default, per session.** Nothing listens until you turn it on in a session. Making "Listening: On" your default is your own choice to have every new session listen; think twice before pairing it with "Ask before actions: Off".
+- **Listening by default, asking by default.** Every interactive session listens once the mod is installed, so the approval below is what stands between a relayed message and your files; leave it on unless you have a reason. To have sessions stay off until you say so, switch Listening off in the menu and lock it. A run nobody sits at never listens by itself.
 - **Actions need your approval.** While a relayed message's turn runs, every tool call the session would have run without asking, and that is not a read, is put to you in Claude Code instead. This holds in every permission mode, bypass included. Where nobody can be asked, the action is refused. Turning "Ask before actions" off (or `--trust`) removes this; do it only when you would be comfortable typing anything the chat might send.
 - **Labelled.** A relayed message arrives marked as relayed, not as typed by you, unless you turn "Plain messages" on.
 - **The chat asks too.** The desktop app asks before the chat calls the connector. Keep that on "ask", not "always allow".

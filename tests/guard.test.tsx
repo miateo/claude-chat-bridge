@@ -7,7 +7,7 @@ const stage = (
   on: Parameters<Parameters<typeof test>[1]>[1],
   submitted: unknown[],
   sessionId = 's1',
-  stored: Record<string, unknown> = {},
+  stored: Record<string, unknown> = { 'default.listening': false },
 ) => {
   mock.store(on, stored)
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -144,4 +144,23 @@ test('the menu switches a setting and its lock saves the default', async ($, on)
   // On is now the default: the lock gives way to the "default" mark.
   expect(await ui.find({ type: 'Button', key: 'lock-plain' })).toBe(undefined)
   await ui.unmount()
+})
+
+test('with nothing saved, an interactive session listens and still asks', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 's1', {})
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  await settle()
+
+  expect(submitted.length).toBe(1)
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
+})
+
+test('a session nobody sits at does not listen by itself', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 's1', {})
+  await $.session.start({ cwd: '/work/site', surface: null, isInteractive: false })
+  await settle()
+
+  expect(submitted.length).toBe(0)
 })
