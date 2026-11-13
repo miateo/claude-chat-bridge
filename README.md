@@ -1,17 +1,19 @@
 # chat-bridge
 
-Lets a normal Claude chat (in the Claude desktop app) send messages to a Claude Code session on the same computer and read its answers.
+Lets a normal Claude chat hand work to Claude Code on your computer and read the answers back, so an idea you talked through in the chat can be built without leaving it.
+
+**Why.** A lot of work starts as a conversation: on the phone, thinking something through with Claude. Building it then meant asking for a summary, opening Claude Code, pasting it in and going back and forth by hand. chat-bridge removes that step. The chat sends the task to Claude Code itself, in a session you have open or one it starts in the background, and shows you the result. With the Claude desktop app running on your computer, that works from a chat on your phone too.
 
 ![How chat-bridge works: the chat calls a local connector, which hands the message to a named Claude Code session and returns its answer](docs/how-it-works.svg)
 
 It has two halves:
 
 - **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
-- **The mod** (`hooks/register.ts`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
+- **The mod** (`hooks/register.tsx`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
 Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer.
 
-> Experimental. It is built on Claude Code's early-access mod API, which changes between releases, and has been run on macOS only. Read [Security](#security) before turning it on.
+> Experimental and unofficial. It is built on Claude Code's early-access mod API, which changes between releases, and has been run on macOS only. It lets one AI model give instructions to another that can run commands on your computer: read [Security](#security) and the [Disclaimer](#disclaimer) before turning it on.
 
 ## Install on a computer
 
@@ -132,6 +134,21 @@ What it does not protect:
 - **No isolation between sessions' names.** Names are for addressing, not access control.
 
 Found a problem? Open an issue.
+
+## Disclaimer
+
+chat-bridge is an independent, unofficial project. It is not made, endorsed or supported by Anthropic. "Claude" and "Claude Code" are Anthropic's names, used here only to say what the software works with.
+
+It is provided as is, with no warranty of any kind, under the [MIT licence](LICENSE). To the extent the law allows, the authors and contributors are not liable for any loss, damage, data loss, leaked information, unwanted action or security incident that comes from installing or using it, including actions an AI model takes on your computer through it.
+
+By installing it you accept that:
+
+- You are giving an AI chat a way to make a coding agent act on your computer, and that such systems can be misled by content they read.
+- The safeguards described under Security lower that risk and do not remove it. None of them has been independently audited.
+- Which settings you turn on, which folders you allow and what you approve are your decisions and your responsibility. Turning off "Ask before actions", or choosing Balanced or Auto mode for background runs, removes protection.
+- You should not use it on a computer, or in folders, holding anything you cannot afford to lose or disclose, and you should keep backups.
+
+If you do not accept this, do not install it.
 
 ## Limits
 
