@@ -2,10 +2,12 @@
 
 Lets a normal Claude chat (in the Claude desktop app) send messages to a Claude Code session on the same computer and read its answers.
 
+![How chat-bridge works: the chat calls a local connector, which hands the message to a named Claude Code session and returns its answer](docs/how-it-works.svg)
+
 It has two halves:
 
 - **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status` (lists the listening sessions).
-- **The mod** (`hooks/register.ts`): a Claude Code plugin that adds `/chat-bridge on [name]|off`. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
+- **The mod** (`hooks/register.ts`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
 Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer.
 
@@ -35,27 +37,49 @@ To install only the mod, at the prompt of a terminal Claude Code session:
 
 ## Use
 
-1. In each Claude Code session that should answer, run `/chat-bridge on`. The session is named after its folder; pick another name with `/chat-bridge on <name>`, for example `/chat-bridge on ads`.
+1. In each Claude Code session that should answer, run `/chat-bridge on`, or run `/chat-bridge` and switch Listening on in the menu. The session is named after its folder; pick another name with `/chat-bridge on <name>`, for example `/chat-bridge on ads`.
 2. In a normal chat in the desktop app, ask for example: "use chat-bridge to ask the ads session which folder it is in". With one session listening, the name can be left out.
-3. `/chat-bridge off` stops that session listening. `/chat-bridge` alone shows its state.
+3. `/chat-bridge off` stops that session listening.
 
-Listening is per session and never starts by itself: run `/chat-bridge on` again after restarting the desktop app or the session.
+Listening is per session. It starts only when you turn it on, unless you have made "Listening: On" your default (below), and it stops when the session or the desktop app restarts.
 
-Options for `/chat-bridge on`:
+### Settings menu
 
-| Option | What it does |
+`/chat-bridge` with nothing after it opens the settings as a pane beside the conversation, so nothing has to be typed to change them:
+
+![Illustration of the chat-bridge settings pane: switches for Listening, Ask before actions and Plain messages, each with a lock, and a name field](docs/menu.svg)
+
+| Setting | What it does |
 | --- | --- |
-| `<name>` | The name the chat uses for this session. Default: the folder's name. |
-| `--trust` | Skip the approval described under Security: what a relayed message leads to runs under the session's own permissions. |
-| `--plain` | Submit relayed messages as if typed, without Claude Code's "plugin sent a message" wrapper. Cleaner to read; the session then gives them the weight of your own words. |
+| Listening | Whether this session takes messages from the chat. |
+| Ask before actions | On: you approve each action of a relayed message that is not a read (see Security). Off: such actions run under the session's own permissions. |
+| Plain messages | On: relayed messages are submitted as if typed, without Claude Code's "plugin sent a message" wrapper. Cleaner to read; the session then gives them the weight of your own words. |
+| Name | What the chat calls this session. Default: the folder's name. |
+
+**Defaults.** Beside each switch is a lock. While the switch is at its default the lock is closed. Change the switch and the lock opens as "Make default": press it and the current value becomes the default that every new session starts from. Defaults are kept across sessions and restarts; the name is per session and has none.
+
+### Commands
+
+The same settings from the prompt, for a terminal habit or where a pane cannot be shown:
+
+| Command | What it does |
+| --- | --- |
+| `/chat-bridge` | Opens the settings menu. |
+| `/chat-bridge on [name]` | Starts listening, under `name` if given. |
+| `/chat-bridge on --trust` / `--ask` | Starts listening with "Ask before actions" off / on. |
+| `/chat-bridge on --plain` / `--framed` | Starts listening with "Plain messages" on / off. |
+| `/chat-bridge off` | Stops listening. |
+| `/chat-bridge status` | Says whether the session is listening, and how. |
+
+An option left out keeps the setting as it stands.
 
 ## Security
 
 A message that comes over the bridge was written by another model. If that chat has read a web page, an email or a document with instructions hidden in it, it can be steered into sending a message you never asked for, and that message then runs in a coding agent on your computer. chat-bridge is built around that risk:
 
-- **Off by default, per session.** Nothing listens until you run `/chat-bridge on` in a session, and a restart turns it off.
-- **Actions need your approval.** While a relayed message's turn runs, every tool call the session would have run without asking, and that is not a read, is put to you in Claude Code instead. This holds in every permission mode, bypass included. Where nobody can be asked, the action is refused. `--trust` turns this off for a session; use it only when you would be comfortable typing anything the chat might send.
-- **Labelled.** A relayed message arrives marked as relayed, not as typed by you, unless you choose `--plain`.
+- **Off by default, per session.** Nothing listens until you turn it on in a session. Making "Listening: On" your default is your own choice to have every new session listen; think twice before pairing it with "Ask before actions: Off".
+- **Actions need your approval.** While a relayed message's turn runs, every tool call the session would have run without asking, and that is not a read, is put to you in Claude Code instead. This holds in every permission mode, bypass included. Where nobody can be asked, the action is refused. Turning "Ask before actions" off (or `--trust`) removes this; do it only when you would be comfortable typing anything the chat might send.
+- **Labelled.** A relayed message arrives marked as relayed, not as typed by you, unless you turn "Plain messages" on.
 - **The chat asks too.** The desktop app asks before the chat calls the connector. Keep that on "ask", not "always allow".
 - **Private to your user.** The bridge folder is created with mode 700 and tightened if it is looser. Anything that can write to `~/.claude/chat-bridge/inbox` can prompt a listening session, so a program already running as you can; the bridge adds no protection against that.
 - **Logged.** Every message sent and answer read is appended to `~/.claude/chat-bridge/log.jsonl` (rotated at 2 MB).

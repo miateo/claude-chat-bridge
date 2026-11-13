@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" width="720" height="470" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">The chat-bridge settings menu (illustration)</title>
+  <desc id="d">An illustration of the settings pane that /chat-bridge opens: switches for Listening, Ask before actions and Plain messages, each with a lock that saves its current value as the default for new sessions, and a field for the session's name.</desc>
+  <defs>
+    <!-- closed lock -->
+    <g id="lock">
+      <path d="M3.5 7 V4.8 a3.5 3.5 0 0 1 7 0 V7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <rect x="1.5" y="7" width="11" height="8" rx="2" fill="currentColor"/>
+    </g>
+    <!-- open lock -->
+    <g id="unlock">
+      <path d="M3.5 7 V4.8 a3.5 3.5 0 0 1 6.6 -1.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <rect x="1.5" y="7" width="11" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </g>
+  </defs>
+  <rect width="720" height="470" rx="16" fill="#12141c"/>
+
+  <!-- pane -->
+  <rect x="40" y="36" width="640" height="398" rx="12" fill="#1b1f2b" stroke="#2c3244"/>
+  <rect x="40" y="36" width="640" height="44" rx="12" fill="#222737"/>
+  <rect x="40" y="68" width="640" height="12" fill="#222737"/>
+  <text x="64" y="64" fill="#f2f4f8" font-size="15" font-weight="600">chat-bridge</text>
+  <text x="656" y="64" fill="#8b93a7" font-size="13" text-anchor="end">/chat-bridge</text>
+
+  <!-- row 1 -->
+  <text x="64" y="118" fill="#f2f4f8" font-size="14" font-weight="600">Listening</text>
+  <rect x="236" y="100" width="52" height="26" rx="7" fill="#d97757"/>
+  <text x="262" y="118" fill="#12141c" font-size="13" font-weight="600" text-anchor="middle">On</text>
+  <rect x="304" y="100" width="142" height="26" rx="7" fill="none" stroke="#3a4157"/>
+  <use href="#unlock" x="316" y="104" color="#c9cfdd"/>
+  <text x="338" y="118" fill="#c9cfdd" font-size="13">Make default</text>
+  <text x="64" y="144" fill="#8b93a7" font-size="12">This session takes messages from your Claude chat.</text>
+
+  <!-- row 2 -->
+  <text x="64" y="192" fill="#f2f4f8" font-size="14" font-weight="600">Ask before actions</text>
+  <rect x="236" y="174" width="52" height="26" rx="7" fill="#d97757"/>
+  <text x="262" y="192" fill="#12141c" font-size="13" font-weight="600" text-anchor="middle">On</text>
+  <use href="#lock" x="316" y="178" color="#8b93a7"/>
+  <text x="338" y="192" fill="#8b93a7" font-size="13">default</text>
+  <text x="64" y="218" fill="#8b93a7" font-size="12">You approve each action of a relayed message that is not a read.</text>
+
+  <!-- row 3 -->
+  <text x="64" y="266" fill="#f2f4f8" font-size="14" font-weight="600">Plain messages</text>
+  <rect x="236" y="248" width="52" height="26" rx="7" fill="none" stroke="#3a4157"/>
+  <text x="262" y="266" fill="#c9cfdd" font-size="13" font-weight="600" text-anchor="middle">Off</text>
+  <use href="#lock" x="316" y="252" color="#8b93a7"/>
+  <text x="338" y="266" fill="#8b93a7" font-size="13">default</text>
+  <text x="64" y="292" fill="#8b93a7" font-size="12">Relayed messages arrive marked as sent by the chat-bridge plugin.</text>
+
+  <!-- name -->
+  <text x="64" y="340" fill="#f2f4f8" font-size="14" font-weight="600">Name</text>
+  <rect x="236" y="322" width="210" height="26" rx="7" fill="#12141c" stroke="#3a4157"/>
+  <text x="248" y="340" fill="#f2f4f8" font-size="13">ads</text>
+  <text x="64" y="366" fill="#8b93a7" font-size="12">What the chat calls this session. Enter to rename.</text>
+
+  <line x1="64" y1="386" x2="656" y2="386" stroke="#2c3244"/>
+  <text x="64" y="412" fill="#8b93a7" font-size="12">A lock saves the setting as it is now as the default for new sessions.</text>
+
+  <text x="360" y="456" fill="#5d6579" font-size="11" text-anchor="middle">Illustration. The pane is drawn by Claude Code and looks native to the terminal or the desktop app.</text>
+</svg>

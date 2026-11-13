@@ -12,10 +12,25 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 // have run unasked, and that is not a read, is put to the person instead
 // (`tool.check`), whatever the session's permission mode; `--trust` at
 // /chat-bridge on turns that off for the session.
+//
+// Settings are changed from the control menu (/chat-bridge opens it as a pane)
+// or by the command's options. Each lockable setting has a default kept in
+// `$.store`, across sessions: the lock beside it in the menu saves its current
+// value as that default, which new sessions start from.
 
 const POLL_MS = 2000
 const FRESH_MS = 15_000
 const MAX_MESSAGE_CHARS = 20_000
+const PANE = 'chat-bridge'
+
+// The settings a default can be saved for, and the `$.store` key of each.
+type Setting = 'listening' | 'trust' | 'plain'
+const SETTINGS: readonly Setting[] = ['listening', 'trust', 'plain']
+const STORE_KEY: Record<Setting, string> = {
+  listening: 'default.listening',
+  trust: 'default.trust',
+  plain: 'default.plain',
+}
 
 type Inbound = { id: string; to?: string; text: string }
 type Listener = { id: string; name: string; at: number }
@@ -29,6 +44,8 @@ let heldName: string | undefined
 let isTrusted = false
 // Submit a relayed message as typed, without the engine's frame: off unless --plain.
 let isPlain = false
+// The saved defaults as last read from `$.store`; one never saved is false.
+const defaults: Record<Setting, boolean> = { listening: false, trust: false, plain: false }
 let timer: Timer | undefined
 let isPolling = false
 let isTurnRunning = false
@@ -49,6 +66,23 @@ async function directory($: EngineInterface): Promise<string> {
   if (home === undefined) throw new Error('no home folder in the environment')
 
   return `${home.replaceAll('\\', '/')}/.claude/chat-bridge`
+}
+
+function current(setting: Setting): boolean {
+  return setting === 'listening' ? isListening : setting === 'trust' ? isTrusted : isPlain
+}
+
+async function loadDefaults($: EngineInterface): Promise<void> {
+  for (const setting of SETTINGS) {
+    defaults[setting] = (await $.store.get(STORE_KEY[setting])) === true
+  }
+}
+
+// The lock: the setting's current value becomes what new sessions start from.
+async function lock($: EngineInterface, setting: Setting): Promise<void> {
+  defaults[setting] = current(setting)
+  await $.store.set(STORE_KEY[setting], defaults[setting])
+  $.ui.invalidate('ui.render')
 }
 
 async function sessionKey($: EngineInterface): Promise<string> {
@@ -144,51 +178,182 @@ async function stop($: EngineInterface): Promise<void> {
   await $.fs.write(`${dir}/listeners/${id}.json`, JSON.stringify({ id, name: '', at: 0 }))
 }
 
+async function setListening($: EngineInterface, isOn: boolean, asked = ''): Promise<string> {
+  if (isOn) {
+    const name = await chooseName($, asked)
+    isListening = true
+    start($, name)
+    $.ui.invalidate('ui.render')
+
+    return name
+  }
+  isListening = false
+  await stop($)
+  $.ui.invalidate('ui.render')
+
+  return heldName ?? ''
+}
+
+async function toggle($: EngineInterface, setting: Setting): Promise<void> {
+  if (setting === 'listening') {
+    await setListening($, !isListening)
+
+    return
+  }
+  if (setting === 'trust') isTrusted = !isTrusted
+  else isPlain = !isPlain
+  $.ui.invalidate('ui.render')
+}
+
+// The name typed in the menu; a listening session answers to it at once.
+async function rename($: EngineInterface, asked: string): Promise<void> {
+  await chooseName($, asked)
+  if (isListening) {
+    $.ui.status(`chat-bridge: listening as ${heldName ?? 'session'}`)
+    void poll($)
+  }
+  $.ui.invalidate('ui.render')
+}
+
+function summary(): string {
+  if (!isListening) return 'chat-bridge is off.'
+
+  return `chat-bridge is on as "${heldName ?? 'session'}"${isTrusted ? ', trusted' : ', asking before each action of a relayed message'}${isPlain ? ', plain messages' : ''}.`
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'chat-bridge',
       description: 'Let your normal Claude chat talk to this session: on [name] [--trust] [--plain], off or status',
     })
-    if (isListening) start($, await chooseName($, ''))
+    // A new session starts from the saved defaults; a default of listening
+    // is the person's own choice to have every session listen.
+    await loadDefaults($)
+    isTrusted = defaults.trust
+    isPlain = defaults.plain
+    if (defaults.listening) await setListening($, true)
 
     return next(e)
   })
 
   on('command.run', { command: 'chat-bridge' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
-    if (verb.toLowerCase() === 'on') {
-      const flags = rest.filter(word => word.startsWith('--')).map(word => word.toLowerCase())
-      const unknown = flags.find(flag => flag !== '--trust' && flag !== '--plain')
+    const word = verb.toLowerCase()
+    if (word === 'on') {
+      const flags = rest.filter(part => part.startsWith('--')).map(part => part.toLowerCase())
+      const unknown = flags.find(flag => !['--trust', '--ask', '--plain', '--framed'].includes(flag))
       if (unknown !== undefined) {
-        return { text: `chat-bridge: unknown option ${unknown}. Use /chat-bridge on [name] [--trust] [--plain].` }
+        return {
+          text: `chat-bridge: unknown option ${unknown}. Use /chat-bridge on [name] [--trust|--ask] [--plain|--framed].`,
+        }
       }
-      const name = await chooseName($, rest.filter(word => !word.startsWith('--')).join(' '))
-      isTrusted = flags.includes('--trust')
-      isPlain = flags.includes('--plain')
-      isListening = true
-      start($, name)
+      // An option left out keeps the setting as it stands.
+      if (flags.includes('--trust')) isTrusted = true
+      if (flags.includes('--ask')) isTrusted = false
+      if (flags.includes('--plain')) isPlain = true
+      if (flags.includes('--framed')) isPlain = false
+      const name = await setListening($, true, rest.filter(part => !part.startsWith('--')).join(' '))
 
       return {
         text: [
           `chat-bridge is on as "${name}": messages your Claude chat sends to "${name}" run here as prompts, and each answer goes back to the chat.`,
           isTrusted
             ? 'Trusted: what a relayed message leads to runs under this session\'s own permissions, with nothing extra asked.'
-            : 'While a relayed message runs, you are asked to approve each action that is not a read. /chat-bridge on --trust turns that off.',
+            : 'While a relayed message runs, you are asked to approve each action that is not a read.',
+          '/chat-bridge opens the settings.',
         ].join(' '),
       }
     }
-    if (verb.toLowerCase() === 'off') {
-      isListening = false
-      await stop($)
+    if (word === 'off') {
+      await setListening($, false)
 
       return { text: 'chat-bridge is off: this session no longer takes messages from your Claude chat.' }
     }
-    return {
-      text: isListening
-        ? `chat-bridge is on as "${heldName ?? 'session'}"${isTrusted ? ', trusted' : ', asking before each action of a relayed message'}. /chat-bridge off stops it.`
-        : 'chat-bridge is off. Use /chat-bridge on, or /chat-bridge on <name> to pick the name the chat uses for this session.',
+    if (word === 'status') return { text: summary() }
+    if (word !== '' && word !== 'menu') {
+      return { text: 'chat-bridge: use /chat-bridge (the settings), /chat-bridge on [name], /chat-bridge off or /chat-bridge status.' }
     }
+    const { isPlaced } = await $.ui.open({ id: PANE, title: 'chat-bridge', focus: true })
+
+    return {
+      text: isPlaced
+        ? `${summary()} Settings opened.`
+        : `${summary()} The settings pane cannot be shown here: use /chat-bridge on [name] [--trust|--ask] [--plain|--framed] and /chat-bridge off.`,
+    }
+  })
+
+  // The control menu: each setting's switch, and beside the lockable ones the
+  // lock that saves the current value as the default for new sessions.
+  on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => {
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
+    const rows: readonly { setting: Setting; label: string; isOn: boolean; note: string }[] = [
+      {
+        setting: 'listening',
+        label: 'Listening',
+        isOn: isListening,
+        note: 'This session takes messages from your Claude chat.',
+      },
+      {
+        setting: 'trust',
+        label: 'Ask before actions',
+        isOn: !isTrusted,
+        note: isTrusted
+          ? 'Off: what a relayed message leads to runs with nothing extra asked.'
+          : 'You approve each action of a relayed message that is not a read.',
+      },
+      {
+        setting: 'plain',
+        label: 'Plain messages',
+        isOn: isPlain,
+        note: isPlain
+          ? 'Relayed messages arrive as if you typed them.'
+          : 'Relayed messages arrive marked as sent by the chat-bridge plugin.',
+      },
+    ]
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        {rows.map(row => (
+          <Box flexDirection="column">
+            <Box gap={1}>
+              <Text bold>{row.label}</Text>
+              <Button
+                key={`toggle-${row.setting}`}
+                label={row.isOn ? 'On' : 'Off'}
+                variant={row.isOn ? 'primary' : 'secondary'}
+                onPress={() => toggle($, row.setting)}
+              />
+              {current(row.setting) === defaults[row.setting] ? (
+                <Text dimColor>{'\u{1F512}'} default</Text>
+              ) : (
+                <Button
+                  key={`lock-${row.setting}`}
+                  label={'\u{1F513} Make default'}
+                  dimColor
+                  onPress={() => lock($, row.setting)}
+                />
+              )}
+            </Box>
+            <Text dimColor>{row.note}</Text>
+          </Box>
+        ))}
+        <Box flexDirection="column">
+          <Input
+            key="name"
+            label="Name"
+            value={heldName ?? ''}
+            placeholder="this session's folder"
+            submitLabel="rename"
+            onSubmit={value => rename($, value)}
+          />
+          <Text dimColor>What the chat calls this session. Enter to rename.</Text>
+        </Box>
+        <Text dimColor>
+          A lock saves the setting as it is now as the default for new sessions.
+        </Text>
+      </Box>
+    )
   })
 
   // The safeguard. `pendingId` is set from the moment a relayed message is

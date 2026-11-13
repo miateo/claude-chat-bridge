@@ -1,9 +1,16 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 // The engine, stood in for: a session "s1" in /work/site, a home folder, and
 // an inbox holding one message addressed to that session. Nothing touches the
 // disk: every $.fs call is answered here.
-const stage = (on: Parameters<Parameters<typeof test>[1]>[1], submitted: unknown[], sessionId = 's1') => {
+const stage = (
+  on: Parameters<Parameters<typeof test>[1]>[1],
+  submitted: unknown[],
+  sessionId = 's1',
+  stored: Record<string, unknown> = {},
+) => {
+  mock.store(on, stored)
+  on('ui.open', () => ({ value: { isPlaced: true } }))
   const written = new Map<string, string>()
   on('command.register', () => ({ value: { command: 'chat-bridge' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -85,4 +92,56 @@ test('a message addressed to another session is left alone', async ($, on) => {
   await settle()
 
   expect(submitted.length).toBe(0)
+})
+
+test('saved defaults start a new session listening and trusted', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 's1', { 'default.listening': true, 'default.trust': true })
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  await settle()
+
+  // No /chat-bridge on: the default did it, and the relayed message ran.
+  expect(submitted.length).toBe(1)
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('allow')
+})
+
+const MENU = {
+  plugin: 'chat-bridge',
+  component: 'Pane',
+  requestId: 'chat-bridge',
+  props: {
+    title: 'chat-bridge',
+    isFocused: true,
+    bodyColumns: 60,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 30 },
+    view: {},
+  },
+} as const
+
+test('the menu switches a setting and its lock saves the default', async ($, on) => {
+  const submitted: { text: string }[] = []
+  // Another session's inbox: nothing is relayed here, the menu is under test.
+  stage(on, submitted, 'other')
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...MENU, surface })
+
+    // Off, and off is the default: no lock to press.
+    expect((await ui.find({ type: 'Button', key: 'toggle-plain' }))?.text).toBe('Off')
+    expect(await ui.find({ type: 'Button', key: 'lock-plain' })).toBe(undefined)
+    await ui.unmount()
+  }
+
+  const ui = await $.ui.mount({ ...MENU, surface: 'desktop' })
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-plain' })
+
+  expect((await ui.find({ type: 'Button', key: 'toggle-plain' }))?.text).toBe('On')
+  expect((await ui.find({ type: 'Button', key: 'lock-plain' }))?.key).toBe('lock-plain')
+  await $.ui.press({ plugin: 'chat-bridge', key: 'lock-plain' })
+
+  // On is now the default: the lock gives way to the "default" mark.
+  expect(await ui.find({ type: 'Button', key: 'lock-plain' })).toBe(undefined)
+  await ui.unmount()
 })
