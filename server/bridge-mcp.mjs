@@ -165,8 +165,10 @@ const runsConfig = () => {
     codeHash: runs.codeHash,
     claudePath: claudeBinary(config.claudePath),
     // 'ask' (the default): every action that is not a read waits for the person.
-    // 'auto': Claude Code's classifier decides alone, and may ask nobody.
-    mode: runs.mode === 'auto' ? 'auto' : 'ask',
+    // 'balanced': Claude Code's classifier decides, and the mod still puts the
+    //   risky ones (deleting, leaving the folder, the network, installs) to the person.
+    // 'auto': the classifier decides alone, and asks nobody.
+    mode: ['auto', 'balanced'].includes(runs.mode) ? runs.mode : 'ask',
   }
 }
 
@@ -313,7 +315,7 @@ const startRun = (folder, message, config) => {
     '-p',
     prompt,
     '--permission-mode',
-    config.mode === 'auto' ? 'auto' : 'manual',
+    config.mode === 'ask' ? 'manual' : 'auto',
     '--permission-prompt-tool',
     'mcp__chat_bridge_gate__approve',
     '--mcp-config',
@@ -333,7 +335,7 @@ const startRun = (folder, message, config) => {
     cwd: folder,
     detached: true,
     stdio: ['ignore', out, err],
-    env: { ...process.env, CHAT_BRIDGE_RUN: id, CHAT_BRIDGE_DIR: DIR },
+    env: { ...process.env, CHAT_BRIDGE_RUN: id, CHAT_BRIDGE_RUN_MODE: config.mode, CHAT_BRIDGE_DIR: DIR },
   })
   closeSync(out)
   closeSync(err)
@@ -554,6 +556,13 @@ const handle = async ({ id, method, params }) => {
   if (id === undefined) return
   try {
     if (method === 'initialize') {
+      // What the app says it can do (a form of its own for approvals, say), kept
+      // for the person to look at: the app's own log leaves it out.
+      if (gateDir === undefined) {
+        try {
+          writeJson(join(DIR, 'client.json'), { at: new Date().toISOString(), clientInfo: params?.clientInfo, capabilities: params?.capabilities, protocolVersion: params?.protocolVersion })
+        } catch {}
+      }
       return send({
         jsonrpc: '2.0',
         id,

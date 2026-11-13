@@ -92,13 +92,20 @@ It also needs the Claude Code command line signed in on the computer: run `claud
 How a run goes:
 
 - The chat calls `start_claude_code_run` with a folder and a task. A folder that is not allowed, or not inside an allowed one, is refused.
-- The run's actions are decided by **you** (the default) or by **auto mode**, a switch in the settings.
-- **You:** every action that is not a read stops the run and comes back to the chat, which shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so this works wherever you are talking to the chat, a phone included, and does not depend on how an app draws a permission prompt. The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
-- **Auto mode:** Claude Code's own classifier decides alone and nothing is put to you.
+- Who decides the run's actions is a switch in the settings, with three positions:
+
+| Decided by | What happens |
+| --- | --- |
+| **You** (default) | Every action that is not a read stops the run and waits for your approval code. Safest, and the most questions: a shell command that only lists files still asks, because the bridge cannot prove a command is read-only. |
+| **Balanced** | Claude Code's auto mode decides the ordinary actions alone. The bridge still stops, for your approval code, anything that deletes or moves, installs, reaches the network, pushes or rewrites git history, or changes a file outside the folder the run started in. |
+| **Auto mode** | Claude Code's classifier decides alone and nothing is put to you. |
+
+- An approval comes back to the chat, which shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so it works wherever you are talking to the chat, a phone included. The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
 
 What to know before turning it on:
 
-- **Auto mode does what the message asks.** It judges an action against the task, and the task is the relayed message. In testing, a run in auto mode asked to `rm -rf` a folder outside its project did so, with no question and no refusal. Auto mode is for when you would trust anything the chat might send; it is no defence against a chat that was steered by something it read.
+- **Auto mode does what the message asks.** It judges an action against the task, and the task is the relayed message. In testing, a run in auto mode asked to `rm -rf` a folder outside its project did so, with no question and no refusal; the same run in Balanced stopped for approval. Auto mode is for when you would trust anything the chat might send.
+- **Balanced is a list, not a proof.** It asks about what is known to be risky. A destructive command it does not recognise is left to auto mode's classifier.
 - **The code is a shared secret with the conversation.** Once you have typed it in a chat, that conversation holds it, and a steered chat could reuse it there. Start a new chat for sensitive work, and change the code if a conversation went somewhere odd.
 - **A run is not sandboxed.** It runs as you. The bridge refuses a run's attempts to read or change its own files, and Claude Code is told to deny them, but that is a rule, not a wall.
 - **Reads are not gated**, as with sessions: a run can read what is in its reach and the answer goes back to the chat.

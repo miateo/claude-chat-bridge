@@ -51,13 +51,29 @@ const BUILT_IN: Record<Setting, boolean> = { listening: true, trust: false, plai
 const defaults: Record<Setting, boolean> = { ...BUILT_IN }
 // Background runs, as config.json has them: the chat starting Claude Code by
 // itself. For every session at once, and off until the person turns them on.
-type Runs = { isEnabled: boolean; folders: readonly string[]; hasCode: boolean; isAuto: boolean }
-let runs: Runs = { isEnabled: false, folders: [], hasCode: false, isAuto: false }
+type RunMode = 'ask' | 'balanced' | 'auto'
+type Runs = { isEnabled: boolean; folders: readonly string[]; hasCode: boolean; mode: RunMode }
+let runs: Runs = { isEnabled: false, folders: [], hasCode: false, mode: 'ask' }
+const RUN_MODES: Record<RunMode, { label: string; note: string }> = {
+  ask: {
+    label: 'You',
+    note: 'You: every action that is not a read waits in the chat until you type your approval code.',
+  },
+  balanced: {
+    label: 'Balanced',
+    note: 'Balanced: Claude Code decides the ordinary actions alone. Deleting, moving, installing, the network, git pushes and anything outside the folder still wait for your approval code.',
+  },
+  auto: {
+    label: 'Auto mode',
+    note: 'Auto mode: Claude Code decides alone and asks nobody. It does what the message asks, deleting included, if that looks like the task.',
+  },
+}
 // A line under the runs settings saying why a change was not made.
 let runsNote = ''
 let sessionFolder = ''
-// True inside a background run the connector started.
+// True inside a background run the connector started, and the mode it runs in.
 let isBackgroundRun = false
+let runMode = ''
 // Whether the bar above the prompt shows the settings under its one line.
 let isBarOpen = false
 let timer: Timer | undefined
@@ -81,6 +97,42 @@ async function directory($: EngineInterface): Promise<string> {
   if (home === undefined) throw new Error('no home folder in the environment')
 
   return `${home.replaceAll('\\', '/')}/.claude/chat-bridge`
+}
+
+// Balanced mode's own rule, on top of auto mode's classifier: what a
+// background run may not do without the person, however the task is worded.
+// A list of what is known to be risky, so it errs toward asking.
+const RISKY_COMMAND =
+  /(^|[\s;&|(`$])(sudo|rm|rmdir|unlink|mv|dd|shred|truncate|chmod|chown|kill|pkill|killall|launchctl|crontab|ssh|scp|sftp|rsync|curl|wget|nc|ncat|telnet|osascript|defaults|open|eval|npm|npx|pnpm|yarn|bun|pip|pip3|brew|gem|docker|kubectl|gh|git\s+(push|reset|clean|rebase|checkout|restore|remote|config|branch\s+-[dD]|stash\s+(drop|clear)))(\s|$)/
+
+function isInside(path: string, folder: string): boolean {
+  const root = folder.replace(/[\\/]+$/, '')
+
+  return path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`)
+}
+
+function riskOf(tool: string, input: unknown, folder: string): string | undefined {
+  const fields = (input ?? {}) as { command?: unknown; file_path?: unknown; notebook_path?: unknown }
+  if (tool === 'Bash') {
+    const command = typeof fields.command === 'string' ? fields.command : ''
+    if (RISKY_COMMAND.test(command)) return 'it deletes, moves, installs, reaches the network or changes what is hard to undo'
+    // A write (a redirect, tee) that names a path outside the run's folder.
+    const isWrite = />|\btee\b/.test(command)
+    const outside = (command.match(/(?:^|[\s=>"'])((?:~|\/)[^\s"'<>|;&)]*)/g) ?? [])
+      .map(found => found.replace(/^[\s=>"']+/, ''))
+      .filter(path => path.startsWith('~') || !isInside(path, folder))
+      .filter(path => !path.startsWith('/dev/'))
+    if (isWrite && outside.length > 0) return 'it writes outside the folder the run was started in'
+
+    return undefined
+  }
+  if (tool === 'Write' || tool === 'Edit' || tool === 'NotebookEdit') {
+    const path = typeof fields.file_path === 'string' ? fields.file_path : typeof fields.notebook_path === 'string' ? fields.notebook_path : ''
+
+    return isInside(path, folder) ? undefined : 'it changes a file outside the folder the run was started in'
+  }
+
+  return 'it is not a read, and not a tool the bridge knows to be safe'
 }
 
 function current(setting: Setting): boolean {
@@ -259,7 +311,8 @@ function folderList(raw: RawRuns): string[] {
 async function loadRuns($: EngineInterface): Promise<void> {
   const raw = (await readConfig($)).runs ?? {}
   const hasCode = (typeof raw.code === 'string' && raw.code !== '') || typeof raw.codeHash === 'string'
-  runs = { isEnabled: raw.enabled === true && hasCode, folders: folderList(raw), hasCode, isAuto: raw.mode === 'auto' }
+  const mode: RunMode = raw.mode === 'auto' || raw.mode === 'balanced' ? raw.mode : 'ask'
+  runs = { isEnabled: raw.enabled === true && hasCode, folders: folderList(raw), hasCode, mode }
 }
 
 // Reads the file again before each change: the connector rewrites it too,
@@ -285,11 +338,12 @@ async function toggleRuns($: EngineInterface): Promise<void> {
   await changeRuns($, raw => ({ ...raw, enabled: isEnabled }))
 }
 
-// Who decides a run's actions: the person, by approval code ('ask', the
-// default), or Claude Code's auto mode alone.
+// Who decides a run's actions, one step on at each press: the person, by
+// approval code ('ask', the default); auto mode with the risky ones still
+// the person's ('balanced'); or auto mode alone.
 async function toggleRunMode($: EngineInterface): Promise<void> {
   await loadRuns($)
-  const mode = runs.isAuto ? 'ask' : 'auto'
+  const mode: RunMode = runs.mode === 'ask' ? 'balanced' : runs.mode === 'balanced' ? 'auto' : 'ask'
   runsNote = ''
   await changeRuns($, raw => ({ ...raw, mode }))
 }
@@ -314,6 +368,12 @@ async function allowFolder($: EngineInterface, folder: string, isAllowed: boolea
 
     return { ...raw, folders: isAllowed ? [...new Set([...held, folder])] : held.filter(one => one !== folder) }
   })
+}
+
+// Whether the session's folder is one a person would name: not the throwaway
+// folder an app makes for a session started without a project.
+function isProjectFolder(folder: string): boolean {
+  return folder !== '' && !/[\\/](scratch-workspaces|\.claude[\\/]spares)[\\/]/.test(folder)
 }
 
 // A folder typed into the settings: "~" is the home folder, and it has to be
@@ -441,16 +501,12 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
           <Text bold>A run's actions are decided by</Text>
           <Button
             key="toggle-run-mode"
-            label={runs.isAuto ? 'Auto mode' : 'You'}
-            variant={runs.isAuto ? 'secondary' : 'primary'}
+            label={RUN_MODES[runs.mode].label}
+            variant={runs.mode === 'auto' ? 'secondary' : 'primary'}
             onPress={() => toggleRunMode($)}
           />
         </Box>
-        <Text dimColor>
-          {runs.isAuto
-            ? 'Auto mode: Claude Code decides alone and asks nobody. It does what the message asks, deleting included, if that looks like the task.'
-            : 'You: every action that is not a read waits in the chat until you type your approval code.'}
-        </Text>
+        <Text dimColor>{RUN_MODES[runs.mode].note} Press to change.</Text>
       </Box>
       <Box flexDirection="column">
         <Input
@@ -487,17 +543,22 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
           submitLabel="allow"
           onSubmit={value => addFolder($, value)}
         />
-        {sessionFolder !== '' && !runs.folders.includes(sessionFolder) && (
-          <Button
-            key="run-folder-add"
-            label={`Allow this session's folder (${sessionFolder})`}
-            dimColor
-            onPress={() => allowFolder($, sessionFolder, true)}
-          />
-        )}
         <Text dimColor>
           An allowed folder covers every folder inside it. These settings are for the whole computer, not this session.
         </Text>
+        {isProjectFolder(sessionFolder) && !runs.folders.includes(sessionFolder) && (
+          <Box gap={1} marginTop={1}>
+            <Button
+              key="run-folder-add"
+              label="Allow this session's folder"
+              dimColor
+              onPress={() => allowFolder($, sessionFolder, true)}
+            />
+            <Text dimColor wrap="truncate-middle">
+              {sessionFolder}
+            </Text>
+          </Box>
+        )}
       </Box>
       {runsNote !== '' && <Text color="yellow">{runsNote}</Text>}
     </Box>
@@ -517,6 +578,7 @@ export const register: Register = on => {
     await loadDefaults($)
     sessionFolder = await $.session.cwd()
     isBackgroundRun = (await $.env.get('CHAT_BRIDGE_RUN')) !== undefined
+    runMode = (await $.env.get('CHAT_BRIDGE_RUN_MODE')) ?? ''
     await loadRuns($)
     isTrusted = defaults.trust
     isPlain = defaults.plain
@@ -615,8 +677,18 @@ export const register: Register = on => {
       }
     }
     const verdict = await next(e)
+    // A balanced background run: auto mode said yes; the risky ones still go
+    // to the person, through the run's permission handler.
+    // (In auto mode the engine's own verdict is an `ask` its classifier then
+    // settles; an ask this hook makes is a person's, which no classifier settles.)
+    if (isBackgroundRun && runMode === 'balanced' && verdict.decision !== 'deny' && e.isReadOnly !== true) {
+      const risk = riskOf(e.tool, e.input, sessionFolder)
+      if (risk !== undefined) return { decision: 'ask', reason: `chat-bridge: ${risk}.` }
+    }
     if (pendingId === undefined || isTrusted) return verdict
-    if (verdict.decision !== 'allow' || e.isReadOnly === true) return verdict
+    // An `ask` of the engine's is made this hook's own too: in an auto-mode
+    // session it would otherwise go to the classifier, not to the person.
+    if (verdict.decision === 'deny' || e.isReadOnly === true) return verdict
 
     return {
       decision: 'ask',
