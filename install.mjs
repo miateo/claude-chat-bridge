@@ -43,6 +43,21 @@ config.mcpServers = { ...config.mcpServers, 'chat-bridge': { command: node, args
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
 console.log(`Connector added to ${configPath}`)
 
+// Where Claude Code is installed, for background runs: the desktop app starts
+// the connector with a short PATH that may not hold it.
+const which = spawnSync(platform() === 'win32' ? 'where' : 'which', ['claude'], { encoding: 'utf8' })
+const claudePath = which.status === 0 ? which.stdout.split(/\r?\n/)[0].trim() : ''
+if (claudePath !== '') {
+  const bridgeDir = join(homedir(), '.claude', 'chat-bridge')
+  const bridgeConfig = join(bridgeDir, 'config.json')
+  mkdirSync(bridgeDir, { recursive: true, mode: 0o700 })
+  let held = {}
+  try {
+    held = JSON.parse(readFileSync(bridgeConfig, 'utf8'))
+  } catch {}
+  writeFileSync(bridgeConfig, JSON.stringify({ ...held, claudePath }), { mode: 0o600 })
+}
+
 // 2. The Claude Code mod.
 const claude = (...args) => spawnSync('claude', args, { stdio: 'inherit', shell: platform() === 'win32' }).status === 0
 const isInstalled =

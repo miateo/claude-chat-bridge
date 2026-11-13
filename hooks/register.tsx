@@ -49,6 +49,15 @@ let isPlain = false
 const BUILT_IN: Record<Setting, boolean> = { listening: true, trust: false, plain: false }
 // The defaults in force: the saved one as last read from `$.store`, else the built-in.
 const defaults: Record<Setting, boolean> = { ...BUILT_IN }
+// Background runs, as config.json has them: the chat starting Claude Code by
+// itself. For every session at once, and off until the person turns them on.
+type Runs = { isEnabled: boolean; folders: readonly string[]; hasCode: boolean }
+let runs: Runs = { isEnabled: false, folders: [], hasCode: false }
+// A line under the runs settings saying why a change was not made.
+let runsNote = ''
+let sessionFolder = ''
+// True inside a background run the connector started.
+let isBackgroundRun = false
 // Whether the bar above the prompt shows the settings under its one line.
 let isBarOpen = false
 let timer: Timer | undefined
@@ -227,6 +236,73 @@ function summary(): string {
   return `chat-bridge is on as "${heldName ?? 'session'}"${isTrusted ? ', trusted' : ', asking before each action of a relayed message'}${isPlain ? ', plain messages' : ''}.`
 }
 
+type RawRuns = { enabled?: unknown; folders?: unknown; code?: unknown; codeHash?: unknown; salt?: unknown }
+type RawConfig = { runs?: RawRuns }
+
+async function readConfig($: EngineInterface): Promise<RawConfig> {
+  const dir = await directory($)
+
+  return $.fs
+    .read(`${dir}/config.json`)
+    .then(text => JSON.parse(text) as RawConfig)
+    .catch(() => ({}))
+}
+
+function folderList(raw: RawRuns): string[] {
+  return Array.isArray(raw.folders) ? raw.folders.filter((one): one is string => typeof one === 'string') : []
+}
+
+async function loadRuns($: EngineInterface): Promise<void> {
+  const raw = (await readConfig($)).runs ?? {}
+  const hasCode = (typeof raw.code === 'string' && raw.code !== '') || typeof raw.codeHash === 'string'
+  runs = { isEnabled: raw.enabled === true && hasCode, folders: folderList(raw), hasCode }
+}
+
+// Reads the file again before each change: the connector rewrites it too,
+// when it replaces a typed approval code with its hash.
+async function changeRuns($: EngineInterface, change: (raw: RawRuns) => RawRuns): Promise<void> {
+  const dir = await directory($)
+  const config = await readConfig($)
+  await $.fs.write(`${dir}/config.json`, JSON.stringify({ ...config, runs: change(config.runs ?? {}) }))
+  await loadRuns($)
+  $.ui.invalidate('ui.render')
+}
+
+async function toggleRuns($: EngineInterface): Promise<void> {
+  await loadRuns($)
+  if (!runs.isEnabled && !runs.hasCode) {
+    runsNote = 'Set an approval code first: the chat needs it from you to allow an action.'
+    $.ui.invalidate('ui.render')
+
+    return
+  }
+  runsNote = ''
+  const isEnabled = !runs.isEnabled
+  await changeRuns($, raw => ({ ...raw, enabled: isEnabled }))
+}
+
+async function setCode($: EngineInterface, typed: string): Promise<void> {
+  const code = typed.trim()
+  if (code.length < 4) {
+    runsNote = 'The approval code needs at least 4 characters.'
+    $.ui.invalidate('ui.render')
+
+    return
+  }
+  runsNote = 'Approval code saved.'
+  // The connector keeps only a salted hash of it from its next read on.
+  await changeRuns($, raw => ({ enabled: raw.enabled, folders: raw.folders, code }))
+}
+
+async function allowFolder($: EngineInterface, folder: string, isAllowed: boolean): Promise<void> {
+  runsNote = ''
+  await changeRuns($, raw => {
+    const held = folderList(raw)
+
+    return { ...raw, folders: isAllowed ? [...new Set([...held, folder])] : held.filter(one => one !== folder) }
+  })
+}
+
 function openBar($: EngineInterface, isOpen: boolean): void {
   isBarOpen = isOpen
   $.ui.invalidate('ui.render')
@@ -302,6 +378,58 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
       <Text dimColor>
         A lock saves the setting as it is now as the default for new sessions.
       </Text>
+      <Box flexDirection="column">
+        <Box gap={1}>
+          <Text bold>Background runs</Text>
+          <Button
+            key="toggle-runs"
+            label={runs.isEnabled ? 'On' : 'Off'}
+            variant={runs.isEnabled ? 'primary' : 'secondary'}
+            onPress={() => toggleRuns($)}
+          />
+        </Box>
+        <Text dimColor>
+          {runs.isEnabled
+            ? 'The chat can start Claude Code by itself, unattended, in the folders below. Anything it will not decide alone waits for your approval code in the chat.'
+            : 'Off: the chat can only talk to sessions you opened. On lets it start Claude Code by itself in folders you allow.'}
+        </Text>
+      </Box>
+      <Box flexDirection="column">
+        <Input
+          key="run-code"
+          label="Approval code"
+          value=""
+          placeholder={runs.hasCode ? 'set; type a new one to change it' : 'at least 4 characters'}
+          submitLabel="save"
+          onSubmit={value => setCode($, value)}
+        />
+        <Text dimColor>
+          You type it in the chat to allow an action of a background run. Keep it to yourself; it is stored only as a hash.
+        </Text>
+      </Box>
+      <Box flexDirection="column">
+        <Text bold>Folders a background run may start in</Text>
+        {runs.folders.length === 0 && <Text dimColor>None yet.</Text>}
+        {runs.folders.map((folder, index) => (
+          <Box gap={1}>
+            <Text>{folder}</Text>
+            <Button
+              key={`run-folder-remove-${index}`}
+              label="Remove"
+              dimColor
+              onPress={() => allowFolder($, folder, false)}
+            />
+          </Box>
+        ))}
+        {sessionFolder !== '' && !runs.folders.includes(sessionFolder) && (
+          <Button
+            key="run-folder-add"
+            label={`Allow this session's folder (${sessionFolder})`}
+            onPress={() => allowFolder($, sessionFolder, true)}
+          />
+        )}
+      </Box>
+      {runsNote !== '' && <Text color="yellow">{runsNote}</Text>}
     </Box>
   )
 }
@@ -317,6 +445,9 @@ export const register: Register = on => {
     // SDK host) never listens by itself: nobody could approve what a relayed
     // message asks for, or know it was listening.
     await loadDefaults($)
+    sessionFolder = await $.session.cwd()
+    isBackgroundRun = (await $.env.get('CHAT_BRIDGE_RUN')) !== undefined
+    await loadRuns($)
     isTrusted = defaults.trust
     isPlain = defaults.plain
     if (defaults.listening && e.isInteractive) await setListening($, true)
@@ -404,6 +535,14 @@ export const register: Register = on => {
   // The safeguard. `pendingId` is set from the moment a relayed message is
   // submitted until its turn ends, subagents' calls included.
   on('tool.check', async ($, e, next) => {
+    // The bridge's own files (the approval code's hash, a run's decisions)
+    // are never a relayed message's or a background run's to touch.
+    if ((pendingId !== undefined || isBackgroundRun) && JSON.stringify(e.input ?? {}).includes('.claude/chat-bridge')) {
+      return {
+        decision: 'deny',
+        reason: 'chat-bridge: its own files are off limits to a relayed message or a background run.',
+      }
+    }
     const verdict = await next(e)
     if (pendingId === undefined || isTrusted) return verdict
     if (verdict.decision !== 'allow' || e.isReadOnly === true) return verdict
@@ -414,7 +553,7 @@ export const register: Register = on => {
         'chat-bridge: this action comes from a message relayed from your Claude chat, not one you typed here.',
     }
   }).catch(($, e, next) =>
-    pendingId === undefined
+    pendingId === undefined && !isBackgroundRun
       ? next(e)
       : { decision: 'deny', reason: 'chat-bridge: its check of a relayed message\'s action failed.' },
   )

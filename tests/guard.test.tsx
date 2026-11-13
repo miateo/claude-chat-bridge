@@ -32,7 +32,18 @@ const stage = (
       ? [{ name: 'm1.json', kind: 'file', size: 1, mtimeMs: 0, isLink: false }]
       : [],
   }))
-  on('fs.read', () => ({ value: JSON.stringify({ id: 'm1', to: 's1', text: 'delete the build folder' }) }))
+  on('fs.read', (_, e) => {
+    // The config file is what the mod last wrote, or missing; any other
+    // read is the one message in the inbox.
+    if (String(e.path).endsWith('/config.json')) {
+      const config = written.get(e.path)
+      if (config === undefined) throw new Error('ENOENT')
+
+      return { value: config }
+    }
+
+    return { value: JSON.stringify({ id: 'm1', to: 's1', text: 'delete the build folder' }) }
+  })
   on('prompt.submit', (_, e) => {
     submitted.push(e)
 
@@ -63,7 +74,12 @@ test('a relayed message is submitted, and its actions are put to the person', as
   expect(submitted[0]?.text.includes('delete the build folder')).toBe(true)
   expect(written.has('/tmp/chat-bridge-test-home/.claude/chat-bridge/claimed/m1.json')).toBe(true)
 
-  // While the relayed turn runs, an allowed action becomes an ask.
+  // While the relayed turn runs, the bridge's own files are off limits,
+  expect(
+    (await $.tool.check({ tool: 'Read', input: { file_path: '/tmp/chat-bridge-test-home/.claude/chat-bridge/config.json' } }))
+      .decision,
+  ).toBe('deny')
+  // and an allowed action becomes an ask.
   expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
 
   await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
@@ -195,4 +211,32 @@ test('the bar is always drawn, and opens the settings in place', async ($, on) =
     await $.ui.press({ plugin: 'chat-bridge', key: 'bar-settings', surface })
     await ui.unmount()
   }
+})
+
+test('background runs stay off until a code is set, then turn on for allowed folders', async ($, on) => {
+  const submitted: { text: string }[] = []
+  const { written } = stage(on, submitted, 'other')
+  const config = () => JSON.parse(written.get('/tmp/chat-bridge-test-home/.claude/chat-bridge/config.json') ?? '{}')
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...MENU, surface: 'desktop' })
+
+  // Off, and it stays off without an approval code.
+  expect((await ui.find({ type: 'Button', key: 'toggle-runs' }))?.text).toBe('Off')
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-runs' })
+
+  expect((await ui.find({ type: 'Button', key: 'toggle-runs' }))?.text).toBe('Off')
+  expect(config().runs?.enabled).toBe(undefined)
+
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-code', text: '4242' })
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-runs' })
+  await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-add' })
+
+  expect((await ui.find({ type: 'Button', key: 'toggle-runs' }))?.text).toBe('On')
+  expect(config().runs.enabled).toBe(true)
+  expect(config().runs.folders[0]).toBe('/work/site')
+
+  await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-remove-0' })
+
+  expect(config().runs.folders.length).toBe(0)
+  await ui.unmount()
 })

@@ -73,6 +73,34 @@ The same settings from the prompt, for a terminal habit or where a pane cannot b
 
 An option left out keeps the setting as it stands.
 
+## Background runs (experimental, off by default)
+
+Normally the chat can only talk to sessions you opened. With background runs on, it can also start Claude Code by itself, unattended, in folders you allowed, and get the answer back.
+
+> Not yet verified end to end. The approval path is tested in simulation; a real unattended run has not been observed. It lives on the `background-runs` branch until it has.
+
+Turn it on in the settings (the bar's **Settings** button, or `/chat-bridge`), under **Background runs**:
+
+1. Type an **approval code** of at least 4 characters and press Enter. Only you should know it.
+2. Allow at least one folder: **Allow this session's folder** adds the one you are in.
+3. Switch **Background runs** on.
+
+It also needs the Claude Code command line signed in on the computer: run `claude` once in a terminal and log in.
+
+How a run goes:
+
+- The chat calls `start_claude_code_run` with a folder and a task. A folder that is not allowed, or not inside an allowed one, is refused.
+- Claude Code runs in auto mode: its own classifier allows what looks safe and blocks what looks dangerous.
+- What auto mode leaves to a person comes back to the chat. The chat shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so this works wherever you are talking to the chat, a phone included, and does not depend on how an app draws a permission prompt.
+- The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
+
+What to know before turning it on:
+
+- **The code is a shared secret with the conversation.** Once you have typed it in a chat, that conversation holds it, and a chat that has been steered by something it read could reuse it there. Start a new chat for sensitive work, and change the code if a conversation went somewhere odd.
+- **Auto mode is a classifier, not a guarantee.** It judges actions against the task it was given, and the task is the relayed message.
+- **A run is not sandboxed.** It runs as you. The bridge refuses a run's attempts to read or change its own files, and Claude Code is told to deny them, but that is a rule, not a wall.
+- **Reads are not gated**, as with sessions: a run can read what is in its reach and the answer goes back to the chat.
+
 ## Security
 
 A message that comes over the bridge was written by another model. If that chat has read a web page, an email or a document with instructions hidden in it, it can be steered into sending a message you never asked for, and that message then runs in a coding agent on your computer. chat-bridge is built around that risk:
