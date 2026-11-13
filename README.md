@@ -6,7 +6,7 @@ Lets a normal Claude chat (in the Claude desktop app) send messages to a Claude 
 
 It has two halves:
 
-- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status` (lists the listening sessions).
+- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
 - **The mod** (`hooks/register.ts`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
 Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer.
@@ -101,6 +101,8 @@ How a run goes:
 | **Auto mode** | Claude Code's classifier decides alone and nothing is put to you. |
 
 - An approval comes back to the chat, which shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so it works wherever you are talking to the chat, a phone included. The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
+
+- **A run keeps its session.** When a run has answered, a follow-up from the chat goes back into the same Claude Code session (`continue_claude_code_run`), which still knows everything it read and did, so it does not spend usage finding it out again. Runs of the last day stay available to continue; `claude_code_status` lists them.
 
 What to know before turning it on:
 
