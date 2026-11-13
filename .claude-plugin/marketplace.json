@@ -1,0 +1,6 @@
+{
+  "name": "chat-bridge-marketplace",
+  "description": "chat-bridge: let a normal Claude chat talk to Claude Code sessions.",
+  "owner": { "name": "miateo" },
+  "plugins": [{ "name": "chat-bridge", "source": "./" }]
+}
