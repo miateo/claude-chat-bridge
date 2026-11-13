@@ -45,7 +45,7 @@ Every interactive session listens from its start. To change that, run `/chat-bri
 
 ### Settings menu
 
-`/chat-bridge` with nothing after it opens the settings as a pane beside the conversation, so nothing has to be typed to change them:
+A one-line bar sits above the prompt in every session: it says whether the session is listening and under which name, and its **Settings** button opens the settings right there, and hides them again. `/chat-bridge` opens the same settings as a pane beside the conversation.
 
 ![Illustration of the chat-bridge settings pane: switches for Listening, Ask before actions and Plain messages, each with a lock, and a name field](docs/menu.svg)
 

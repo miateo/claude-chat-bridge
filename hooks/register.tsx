@@ -49,6 +49,8 @@ let isPlain = false
 const BUILT_IN: Record<Setting, boolean> = { listening: true, trust: false, plain: false }
 // The defaults in force: the saved one as last read from `$.store`, else the built-in.
 const defaults: Record<Setting, boolean> = { ...BUILT_IN }
+// Whether the bar above the prompt shows the settings under its one line.
+let isBarOpen = false
 let timer: Timer | undefined
 let isPolling = false
 let isTurnRunning = false
@@ -225,6 +227,85 @@ function summary(): string {
   return `chat-bridge is on as "${heldName ?? 'session'}"${isTrusted ? ', trusted' : ', asking before each action of a relayed message'}${isPlain ? ', plain messages' : ''}.`
 }
 
+function openBar($: EngineInterface, isOpen: boolean): void {
+  isBarOpen = isOpen
+  $.ui.invalidate('ui.render')
+}
+
+// The settings themselves, drawn the same in the pane and in the bar: each
+// setting's switch, and beside the lockable ones the lock that saves the
+// current value as the default for new sessions.
+function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0]) {
+  const { Box, Button, Input, Text } = $.ui.resolve(e)
+  const rows: readonly { setting: Setting; label: string; isOn: boolean; note: string }[] = [
+    {
+      setting: 'listening',
+      label: 'Listening',
+      isOn: isListening,
+      note: 'This session takes messages from your Claude chat.',
+    },
+    {
+      setting: 'trust',
+      label: 'Ask before actions',
+      isOn: !isTrusted,
+      note: isTrusted
+        ? 'Off: what a relayed message leads to runs with nothing extra asked.'
+        : 'You approve each action of a relayed message that is not a read.',
+    },
+    {
+      setting: 'plain',
+      label: 'Plain messages',
+      isOn: isPlain,
+      note: isPlain
+        ? 'Relayed messages arrive as if you typed them.'
+        : 'Relayed messages arrive marked as sent by the chat-bridge plugin.',
+    },
+  ]
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      {rows.map(row => (
+        <Box flexDirection="column">
+          <Box gap={1}>
+            <Text bold>{row.label}</Text>
+            <Button
+              key={`toggle-${row.setting}`}
+              label={row.isOn ? 'On' : 'Off'}
+              variant={row.isOn ? 'primary' : 'secondary'}
+              onPress={() => toggle($, row.setting)}
+            />
+            {current(row.setting) === defaults[row.setting] ? (
+              <Text dimColor>{'\u{1F512}'} default</Text>
+            ) : (
+              <Button
+                key={`lock-${row.setting}`}
+                label={'\u{1F513} Make default'}
+                dimColor
+                onPress={() => lock($, row.setting)}
+              />
+            )}
+          </Box>
+          <Text dimColor>{row.note}</Text>
+        </Box>
+      ))}
+      <Box flexDirection="column">
+        <Input
+          key="name"
+          label="Name"
+          value={heldName ?? ''}
+          placeholder="this session's folder"
+          submitLabel="rename"
+          onSubmit={value => rename($, value)}
+        />
+        <Text dimColor>What the chat calls this session. Enter to rename.</Text>
+      </Box>
+      <Text dimColor>
+        A lock saves the setting as it is now as the default for new sessions.
+      </Text>
+    </Box>
+  )
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -289,75 +370,33 @@ export const register: Register = on => {
     }
   })
 
-  // The control menu: each setting's switch, and beside the lockable ones the
-  // lock that saves the current value as the default for new sessions.
-  on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => {
-    const { Box, Button, Input, Text } = $.ui.resolve(e)
-    const rows: readonly { setting: Setting; label: string; isOn: boolean; note: string }[] = [
-      {
-        setting: 'listening',
-        label: 'Listening',
-        isOn: isListening,
-        note: 'This session takes messages from your Claude chat.',
-      },
-      {
-        setting: 'trust',
-        label: 'Ask before actions',
-        isOn: !isTrusted,
-        note: isTrusted
-          ? 'Off: what a relayed message leads to runs with nothing extra asked.'
-          : 'You approve each action of a relayed message that is not a read.',
-      },
-      {
-        setting: 'plain',
-        label: 'Plain messages',
-        isOn: isPlain,
-        note: isPlain
-          ? 'Relayed messages arrive as if you typed them.'
-          : 'Relayed messages arrive marked as sent by the chat-bridge plugin.',
-      },
-    ]
+  on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => settings($, e))
+
+  // The bar above the prompt, always there: one line saying whether this
+  // session listens, with a button that opens the settings in place.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
 
     return (
-      <Box flexDirection="column" gap={1}>
-        {rows.map(row => (
-          <Box flexDirection="column">
-            <Box gap={1}>
-              <Text bold>{row.label}</Text>
-              <Button
-                key={`toggle-${row.setting}`}
-                label={row.isOn ? 'On' : 'Off'}
-                variant={row.isOn ? 'primary' : 'secondary'}
-                onPress={() => toggle($, row.setting)}
-              />
-              {current(row.setting) === defaults[row.setting] ? (
-                <Text dimColor>{'\u{1F512}'} default</Text>
-              ) : (
-                <Button
-                  key={`lock-${row.setting}`}
-                  label={'\u{1F513} Make default'}
-                  dimColor
-                  onPress={() => lock($, row.setting)}
-                />
-              )}
-            </Box>
-            <Text dimColor>{row.note}</Text>
-          </Box>
-        ))}
-        <Box flexDirection="column">
-          <Input
-            key="name"
-            label="Name"
-            value={heldName ?? ''}
-            placeholder="this session's folder"
-            submitLabel="rename"
-            onSubmit={value => rename($, value)}
+      <Box flexDirection="column" gap={isBarOpen ? 1 : 0}>
+        <Box gap={1}>
+          <Text color={isListening ? 'green' : undefined} dimColor={!isListening}>
+            {isListening ? '\u25CF' : '\u25CB'}
+          </Text>
+          <Text dimColor>
+            {isListening
+              ? `chat-bridge: listening as "${heldName ?? 'session'}"${isTrusted ? ', not asking before actions' : ''}`
+              : 'chat-bridge: off'}
+          </Text>
+          <Button
+            key="bar-settings"
+            label={isBarOpen ? 'Hide settings' : 'Settings'}
+            dimColor
+            onPress={() => openBar($, !isBarOpen)}
           />
-          <Text dimColor>What the chat calls this session. Enter to rename.</Text>
         </Box>
-        <Text dimColor>
-          A lock saves the setting as it is now as the default for new sessions.
-        </Text>
+        {isBarOpen && settings($, e)}
       </Box>
     )
   })

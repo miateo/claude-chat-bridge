@@ -164,3 +164,35 @@ test('a session nobody sits at does not listen by itself', async ($, on) => {
 
   expect(submitted.length).toBe(0)
 })
+
+const BAR = {
+  plugin: 'chat-bridge',
+  component: 'AbovePrompt',
+  props: {
+    hasSurvey: false,
+    isCollapsed: false,
+    isWorking: false,
+    maxRows: 30,
+    bodyColumns: 80,
+    scroll: { offset: 0, bodyRows: 29 },
+  },
+} as const
+
+test('the bar is always drawn, and opens the settings in place', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 'other')
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAR, surface })
+
+    expect((await ui.find({ type: 'Text', text: /chat-bridge: off/ }))?.text).toBe('chat-bridge: off')
+    // Closed, the settings are not drawn; one press opens them.
+    expect(await ui.find({ type: 'Button', key: 'toggle-listening' })).toBe(undefined)
+    await $.ui.press({ plugin: 'chat-bridge', key: 'bar-settings', surface })
+
+    expect((await ui.find({ type: 'Button', key: 'toggle-listening' }))?.text).toBe('Off')
+    await $.ui.press({ plugin: 'chat-bridge', key: 'bar-settings', surface })
+    await ui.unmount()
+  }
+})
