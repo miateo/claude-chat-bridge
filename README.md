@@ -43,7 +43,7 @@ To install only the mod, at the prompt of a terminal Claude Code session:
 2. In a normal chat in the desktop app, ask for example: "use chat-bridge to ask the ads session which folder it is in". With one session listening, the name can be left out.
 3. `/chat-bridge off` stops that session listening.
 
-Every interactive session listens from its start. To change that, run `/chat-bridge`, switch Listening off and press its lock: new sessions then stay off until you turn them on. A run nobody sits at (`claude -p`, an SDK host) never listens by itself.
+Every session you open, in a terminal or in the Claude desktop app, listens from its start. To change that, run `/chat-bridge`, switch Listening off and press its lock: new sessions then stay off until you turn them on. A `claude -p` run, a script or a background run never listens by itself.
 
 ### Settings menu
 

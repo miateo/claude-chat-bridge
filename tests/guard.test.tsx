@@ -318,3 +318,22 @@ test('a relayed model that is not a model name is not passed on', async ($, on) 
   expect(commands.filter(command => !command.startsWith('chat-bridge')).length).toBe(0)
   expect(submitted.length).toBe(1)
 })
+
+test('a desktop app session listens by default, a background run there does not', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 's1', {}, { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' })
+  // The desktop app hosts Claude Code through the SDK: not "interactive".
+  await $.session.start({ cwd: '/work/site', surface: null, isInteractive: false })
+  await settle()
+
+  expect(submitted.length).toBe(1)
+})
+
+test('a background run in the desktop app does not listen by itself', async ($, on) => {
+  const submitted: { text: string }[] = []
+  stage(on, submitted, 's1', {}, { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop', CHAT_BRIDGE_RUN: 'run-1' })
+  await $.session.start({ cwd: '/work/site', surface: null, isInteractive: false })
+  await settle()
+
+  expect(submitted.length).toBe(0)
+})

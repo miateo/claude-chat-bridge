@@ -655,7 +655,12 @@ export const register: Register = on => {
     await loadRuns($)
     isTrusted = defaults.trust
     isPlain = defaults.plain
-    if (defaults.listening && e.isInteractive) await setListening($, true)
+    // The Claude desktop app runs Claude Code through the SDK, so its sessions
+    // say they are not interactive although a person sits at them: they count
+    // as interactive here. A background run never listens, whatever its host.
+    const isDesktop = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'claude-desktop'
+    const hasPerson = e.isInteractive || isDesktop
+    if (defaults.listening && hasPerson && !isBackgroundRun) await setListening($, true)
 
     return next(e)
   })
