@@ -9,6 +9,7 @@ const stage = (
   sessionId = 's1',
   stored: Record<string, unknown> = { 'default.listening': false },
   env: Record<string, string> = {},
+  message: Record<string, unknown> = {},
 ) => {
   mock.store(on, stored)
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -49,19 +50,21 @@ const stage = (
       return { value: config }
     }
 
-    return { value: JSON.stringify({ id: 'm1', to: 's1', text: 'delete the build folder' }) }
+    return { value: JSON.stringify({ id: 'm1', to: 's1', text: 'delete the build folder', ...message }) }
   })
   on('prompt.submit', (_, e) => {
     submitted.push(e)
 
     return { text: e.text }
   })
-  on('command.run', () => ({ text: '' }))
+  // Each slash command the mod runs, as typed.
+  const commands: string[] = []
+  on('command.run', (_, e) => (commands.push(`${e.command} ${e.args}`.trim()), { text: '' }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   // The session's own verdict: bypass mode allows everything.
   on('tool.check', () => ({ decision: 'allow' }))
 
-  return { written }
+  return { written, commands }
 }
 
 const settle = () => new Promise<void>(resolve => setTimeout(resolve, 20))
@@ -287,4 +290,31 @@ test('a balanced background run puts risky actions to the person, and only those
   expect(await check('Write', { file_path: '/work/other/notes.txt', content: 'hello' })).toBe('ask')
   // The bridge's own files are refused outright.
   expect(await check('Bash', { command: 'cat ~/.claude/chat-bridge/config.json' })).toBe('deny')
+})
+
+test('a relayed choice of model and effort is set before the message runs', async ($, on) => {
+  const submitted: { text: string }[] = []
+  const { commands } = stage(on, submitted, 's1', undefined, {}, {
+    text: 'find the bug',
+    model: 'sonnet',
+    effort: 'low',
+    subagentModel: 'haiku',
+  })
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'chat-bridge', args: 'on' })
+  await new Promise<void>(resolve => setTimeout(resolve, 20))
+
+  expect(commands.filter(command => !command.startsWith('chat-bridge')).join(', ')).toBe('model sonnet, effort low')
+  expect(submitted[0]?.text.includes('subagents with the Agent tool on the "haiku" model')).toBe(true)
+})
+
+test('a relayed model that is not a model name is not passed on', async ($, on) => {
+  const submitted: { text: string }[] = []
+  const { commands } = stage(on, submitted, 's1', undefined, {}, { text: 'hi', model: 'opus; /clear' })
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'chat-bridge', args: 'on' })
+  await new Promise<void>(resolve => setTimeout(resolve, 20))
+
+  expect(commands.filter(command => !command.startsWith('chat-bridge')).length).toBe(0)
+  expect(submitted.length).toBe(1)
 })

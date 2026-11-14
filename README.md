@@ -75,6 +75,15 @@ The same settings from the prompt, for a terminal habit or where a pane cannot b
 
 An option left out keeps the setting as it stands.
 
+### Models and subagents
+
+The chat can choose, for each message or run, the **model** (`haiku`, `sonnet`, `opus`, `fable` or a full model id), the **effort**, and a **subagent model**. With a subagent model set, Claude Code hands self-contained work (searching, reading many files, running and summarising tests) to subagents on that cheaper model and keeps only their conclusions, which is often the biggest saving on a large task. Just ask in the chat, for example "use Sonnet, and Haiku for the subagents".
+
+- **Subagents run on** in the settings sets the default for every session and run on the computer: Same model, Sonnet or Haiku. The chat can still choose otherwise for one message.
+- In a session you have open, a model or effort the chat picks is set with `/model` and `/effort` before the message runs, and stays for that session. Switching model costs one turn of re-reading the conversation without the cache, so it pays off for a change of task, not for every message.
+- A background run keeps its choice for its follow-ups unless the chat changes it, and its answer says which models it used.
+- Only model names and effort levels are passed on; anything else is refused.
+
 ## Background runs (experimental, off by default)
 
 Normally the chat can only talk to sessions you opened. With background runs on, it can also start Claude Code by itself, unattended, in folders you allowed, and get the answer back.

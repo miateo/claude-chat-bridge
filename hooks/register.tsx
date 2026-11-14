@@ -32,7 +32,16 @@ const STORE_KEY: Record<Setting, string> = {
   plain: 'default.plain',
 }
 
-type Inbound = { id: string; to?: string; text: string }
+type Inbound = { id: string; to?: string; text: string; model?: string; effort?: string; subagentModel?: string }
+
+// The spellings a relayed choice of model may take, checked again here: the
+// value goes on to a slash command, so nothing else may ride along with it.
+const MODEL = /^(fable|opus|sonnet|haiku|claude-[a-z0-9][a-z0-9.-]{2,60})$/
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// The default subagent model, for every session and run: none, then each step.
+const SUBAGENT_CHOICES = ['', 'sonnet', 'haiku'] as const
+const SUBAGENT_LABEL: Record<string, string> = { '': 'Same model', sonnet: 'Sonnet', haiku: 'Haiku' }
 type Listener = { id: string; name: string; at: number }
 
 // All of it is the module's own, for this session alone, and starts over
@@ -220,7 +229,30 @@ async function poll($: EngineInterface): Promise<void> {
       // Framed by the engine as a plugin's message unless the person chose
       // --plain; the label keeps where it came from in front of the model
       // either way.
-      const text = `[Relayed from the user's Claude chat by chat-bridge; the user did not type it here. The final answer of this turn goes back to that chat.]\n\n${inbound.text}`
+      // The model and effort the chat chose: set as the person would, with the
+      // slash commands, before the message runs. They stay for the session.
+      const switched: string[] = []
+      if (typeof inbound.model === 'string' && MODEL.test(inbound.model)) {
+        await $.command.run({ command: 'model', args: inbound.model }).catch(() => undefined)
+        switched.push(`model ${inbound.model}`)
+      }
+      if (typeof inbound.effort === 'string' && EFFORTS.includes(inbound.effort)) {
+        await $.command.run({ command: 'effort', args: inbound.effort }).catch(() => undefined)
+        switched.push(`effort ${inbound.effort}`)
+      }
+      if (switched.length > 0) $.ui.toast(`chat-bridge: ${switched.join(', ')}`)
+      const subagent =
+        typeof inbound.subagentModel === 'string' && MODEL.test(inbound.subagentModel) ? inbound.subagentModel : undefined
+      const text = [
+        "[Relayed from the user's Claude chat by chat-bridge; the user did not type it here. The final answer of this turn goes back to that chat.]",
+        ...(subagent === undefined
+          ? []
+          : [
+              `[To keep usage down, hand self-contained work (searching the code, reading many files, running and summarising tests) to subagents with the Agent tool on the "${subagent}" model, and keep only their conclusions here. Do small work yourself.]`,
+            ]),
+        '',
+        inbound.text,
+      ].join('\n')
       await $.prompt.submit(isPlain ? { text, asUser: true } : { text })
 
       return
@@ -293,7 +325,7 @@ function summary(): string {
 }
 
 type RawRuns = { enabled?: unknown; folders?: unknown; code?: unknown; codeHash?: unknown; salt?: unknown; mode?: unknown }
-type RawConfig = { runs?: RawRuns }
+type RawConfig = { runs?: RawRuns; subagentModel?: unknown }
 
 async function readConfig($: EngineInterface): Promise<RawConfig> {
   const dir = await directory($)
@@ -309,6 +341,7 @@ function folderList(raw: RawRuns): string[] {
 }
 
 async function loadRuns($: EngineInterface): Promise<void> {
+  await loadSubagentModel($)
   const raw = (await readConfig($)).runs ?? {}
   const hasCode = (typeof raw.code === 'string' && raw.code !== '') || typeof raw.codeHash === 'string'
   const mode: RunMode = raw.mode === 'auto' || raw.mode === 'balanced' ? raw.mode : 'ask'
@@ -341,6 +374,26 @@ async function toggleRuns($: EngineInterface): Promise<void> {
 // Who decides a run's actions, one step on at each press: the person, by
 // approval code ('ask', the default); auto mode with the risky ones still
 // the person's ('balanced'); or auto mode alone.
+// The default subagent model, kept beside the runs in config.json: it holds
+// for every session's relayed messages and for every background run.
+let subagentModel = ''
+
+async function loadSubagentModel($: EngineInterface): Promise<void> {
+  const held = (await readConfig($)).subagentModel
+  subagentModel = typeof held === 'string' && MODEL.test(held) ? held : ''
+}
+
+async function cycleSubagentModel($: EngineInterface): Promise<void> {
+  await loadSubagentModel($)
+  const at = SUBAGENT_CHOICES.indexOf(subagentModel as (typeof SUBAGENT_CHOICES)[number])
+  const next = SUBAGENT_CHOICES[(at + 1) % SUBAGENT_CHOICES.length] ?? ''
+  const dir = await directory($)
+  const { subagentModel: _old, ...rest } = await readConfig($)
+  await $.fs.write(`${dir}/config.json`, JSON.stringify(next === '' ? rest : { ...rest, subagentModel: next }))
+  subagentModel = next
+  $.ui.invalidate('ui.render')
+}
+
 async function toggleRunMode($: EngineInterface): Promise<void> {
   await loadRuns($)
   const mode: RunMode = runs.mode === 'ask' ? 'balanced' : runs.mode === 'balanced' ? 'auto' : 'ask'
@@ -398,10 +451,10 @@ async function addFolder($: EngineInterface, typed: string): Promise<void> {
 // The settings every session shares (the saved defaults, background runs) as
 // they are on disk now: another session, or the connector, may have changed them.
 async function refresh($: EngineInterface): Promise<void> {
-  const before = JSON.stringify([defaults, runs])
+  const before = JSON.stringify([defaults, runs, subagentModel])
   await loadDefaults($)
   await loadRuns($)
-  if (JSON.stringify([defaults, runs]) !== before) $.ui.invalidate('ui.render')
+  if (JSON.stringify([defaults, runs, subagentModel]) !== before) $.ui.invalidate('ui.render')
 }
 
 async function openBar($: EngineInterface, isOpen: boolean): Promise<void> {
@@ -484,6 +537,22 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
       <Text dimColor>
         A lock saves the setting as it is now as the default for new sessions.
       </Text>
+      <Box flexDirection="column" rowGap="sm">
+        <Box gap={1} alignItems="center">
+          <Text bold>Subagents run on</Text>
+          <Button
+            key="toggle-subagent-model"
+            label={SUBAGENT_LABEL[subagentModel] ?? subagentModel}
+            variant={subagentModel === '' ? 'secondary' : 'primary'}
+            onPress={() => cycleSubagentModel($)}
+          />
+        </Box>
+        <Text dimColor>
+          {subagentModel === ''
+            ? 'Same model: Claude Code uses subagents as it sees fit. Press to have relayed messages and background runs hand searching and reading to a cheaper model.'
+            : `Relayed messages and background runs hand searching, reading and test runs to subagents on ${SUBAGENT_LABEL[subagentModel] ?? subagentModel}, and keep only their conclusions. The chat can still choose otherwise for one message. For every session on this computer.`}
+        </Text>
+      </Box>
       <Box flexDirection="column" rowGap="sm">
         <Box gap={1} alignItems="center">
           <Text bold>Background runs</Text>
