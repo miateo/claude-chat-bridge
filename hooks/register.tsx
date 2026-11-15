@@ -122,6 +122,9 @@ function isInside(path: string, folder: string): boolean {
 
 function riskOf(tool: string, input: unknown, folder: string): string | undefined {
   const fields = (input ?? {}) as { command?: unknown; file_path?: unknown; notebook_path?: unknown }
+  // Handing work to a subagent, or keeping a to-do list, changes nothing by
+  // itself: a subagent's own actions come through this check one by one.
+  if (tool === 'Agent' || tool === 'Task' || tool === 'TodoWrite') return undefined
   if (tool === 'Bash') {
     const command = typeof fields.command === 'string' ? fields.command : ''
     if (RISKY_COMMAND.test(command)) return 'it deletes, moves, installs, reaches the network or changes what is hard to undo'
@@ -798,7 +801,10 @@ export const register: Register = on => {
   on('tool.check', async ($, e, next) => {
     // The bridge's own files (the approval code's hash, a run's decisions)
     // are never a relayed message's or a background run's to touch.
-    if ((pendingId !== undefined || isBackgroundRun) && JSON.stringify(e.input ?? {}).includes('.claude/chat-bridge')) {
+    // A subagent's brief is only words (it may repeat this very rule); the
+    // subagent's own tool calls come through this check like any other.
+    const isBrief = e.tool === 'Agent' || e.tool === 'Task'
+    if ((pendingId !== undefined || isBackgroundRun) && !isBrief && JSON.stringify(e.input ?? {}).includes('.claude/chat-bridge')) {
       return {
         decision: 'deny',
         reason: 'chat-bridge: its own files are off limits to a relayed message or a background run.',
@@ -817,6 +823,9 @@ export const register: Register = on => {
     // An `ask` of the engine's is made this hook's own too: in an auto-mode
     // session it would otherwise go to the classifier, not to the person.
     if (verdict.decision === 'deny' || e.isReadOnly === true) return verdict
+    // Handing work to a subagent asks nothing by itself: its actions are put to
+    // the person one by one, as the subagent takes them.
+    if (isBrief || e.tool === 'TodoWrite') return verdict
 
     return {
       decision: 'ask',

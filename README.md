@@ -8,7 +8,7 @@ Lets a normal Claude chat hand work to Claude Code on your computer and read the
 
 It has two halves:
 
-- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`, `read_claude_code_session`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
+- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`, `read_claude_code_session`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `stop_claude_code_run`, `approve_claude_code_action`.
 - **The mod** (`hooks/register.tsx`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
 Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer; the one exception is fetching updates from GitHub, if you turn that on.
@@ -92,6 +92,8 @@ The chat can choose, for each message or run, the **model** (`haiku`, `sonnet`, 
 - In a session you have open, a model or effort the chat picks is set with `/model` and `/effort` before the message runs, and stays for that session. Switching model costs one turn of re-reading the conversation without the cache, so it pays off for a change of task, not for every message.
 - A background run keeps its choice for its follow-ups unless the chat changes it, and its answer says which models it used.
 - Only model names and effort levels are passed on; anything else is refused.
+- Starting a subagent asks nothing by itself; each action the subagent then takes is checked like any other.
+- While planning (`plan_first`), Claude Code uses at least Sonnet: a Haiku choice applies once the run builds.
 
 ## Background runs (experimental, off by default)
 
@@ -122,6 +124,8 @@ How a run goes:
 
 - An approval comes back to the chat, which shows you the exact action and asks for your approval code. You answer in the chat, in plain text, so it works wherever you are talking to the chat, a phone included. The right code allows that one action. No code or a wrong one does not, and five wrong tries refuse it. Unanswered for 15 minutes, it is refused.
 
+- **Plan first.** For anything bigger than a small change, the chat starts the run with `plan_first`: Claude Code investigates and writes a plan in plan mode, changing nothing. The chat reviews the plan against what you asked and continues the run to build it, or has it revised. It brings the plan to you only when something in it is risky, irreversible, not what you asked for, or unclear. Reviewing the plan is a check on the work, not a security control: while the plan is built, actions still go through the setting above, so the risky ones still need your approval code (in You or Balanced).
+- **Stop.** Say "stop" in the chat and it calls `stop_claude_code_run`: the run and everything it started end at once, and its pending approvals are refused. What it changed before that stays, and its session can be continued.
 - **A run keeps its session.** When a run has answered, a follow-up from the chat goes back into the same Claude Code session (`continue_claude_code_run`), which still knows everything it read and did, so it does not spend usage finding it out again. Runs of the last day stay available to continue; `claude_code_status` lists them.
 
 What to know before turning it on:

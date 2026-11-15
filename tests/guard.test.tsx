@@ -92,6 +92,8 @@ test('a relayed message is submitted, and its actions are put to the person', as
   ).toBe('deny')
   // and an allowed action becomes an ask.
   expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
+  // Handing work to a subagent asks nothing by itself; its actions are asked one by one.
+  expect((await $.tool.check({ tool: 'Agent', input: { prompt: 'search the code', model: 'haiku' } })).decision).toBe('allow')
 
   await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
 
@@ -291,6 +293,9 @@ test('a balanced background run puts risky actions to the person, and only those
   expect(await check('Write', { file_path: '/work/other/notes.txt', content: 'hello' })).toBe('ask')
   // The bridge's own files are refused outright.
   expect(await check('Bash', { command: 'cat ~/.claude/chat-bridge/config.json' })).toBe('deny')
+  // A subagent's brief that repeats the rule is only words, and is not refused
+  // or put to the person: the subagent's own actions are checked one by one.
+  expect(await check('Agent', { prompt: 'Do not touch ~/.claude/chat-bridge. Build the layouts.', model: 'opus' })).toBe('allow')
 })
 
 test('a relayed choice of model and effort is set before the message runs', async ($, on) => {
