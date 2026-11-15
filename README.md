@@ -8,7 +8,7 @@ Lets a normal Claude chat hand work to Claude Code on your computer and read the
 
 It has two halves:
 
-- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
+- **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`, `read_claude_code_session`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
 - **The mod** (`hooks/register.tsx`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
 Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer.
@@ -44,6 +44,15 @@ To install only the mod, at the prompt of a terminal Claude Code session:
 3. `/chat-bridge off` stops that session listening.
 
 Every session you open, in a terminal or in the Claude desktop app, listens from its start. To change that, run `/chat-bridge`, switch Listening off and press its lock: new sessions then stay off until you turn them on. A `claude -p` run, a script or a background run never listens by itself.
+
+### Catch up on an earlier session
+
+The chat can read what a Claude Code session said and did, then carry the work on: "read my last Claude Code session in ~/DEV/site and catch me up".
+
+- `read_claude_code_session` lists the sessions it may read, newest first, and returns one as a conversation: your prompts and Claude's replies, optionally with each tool call as one line, the newest part kept when it is long.
+- It may read a session that is listening now, or any session, open or closed, whose folder is allowed in the settings (**Add a folder**, under Background runs; reading works with background runs off).
+- To carry on: a listening session gets the next message with `ask_claude_code`. A closed one is continued by a background run with `from_session`, which works on a copy of that session with everything it knew; the original is left as it was. This needs background runs on.
+- Every read is in the audit log. What is read goes into the chat, so a transcript holding a secret puts that secret in the chat.
 
 ### Settings menu
 
@@ -138,7 +147,7 @@ A message that comes over the bridge was written by another model. If that chat 
 
 What it does not protect:
 
-- **Reads are not gated.** A relayed message can make the session read files in its reach, and the answer goes back to the chat, where it is stored with that conversation like any other chat content. Don't listen from a session that can read secrets you would not paste into a chat.
+- **Reads are not gated.** A relayed message can make the session read files in its reach, and the chat can read the history of sessions in allowed folders; either way the content goes back to the chat, where it is stored with that conversation like any other chat content. Don't listen from a session that can read secrets you would not paste into a chat.
 - **The approval is only as good as your reading of it.** Read what you approve.
 - **No isolation between sessions' names.** Names are for addressing, not access control.
 
@@ -177,6 +186,8 @@ claude plugin test .
 ```
 
 ## Update
+
+Nothing updates by itself. On each computer, pull the clone; the mod and the connector both run from it. Then start a new Claude Code session for the mod, and quit and reopen the desktop app for the connector.
 
 ```bash
 git -C claude-chat-bridge pull
