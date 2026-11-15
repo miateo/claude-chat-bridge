@@ -478,6 +478,20 @@ async function addFolder($: EngineInterface, typed: string): Promise<void> {
   const path = text === '~' ? home : text.startsWith('~/') ? `${home}${text.slice(1)}` : text
   const isAbsolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
   const stat = isAbsolute ? await $.fs.stat(path, { resolve: true }).catch(() => undefined) : undefined
+  // Claude Code will not look into a folder it counts as a network location
+  // from a mod, iCloud Drive among them (Documents and Desktop too, when they
+  // sync to it): `exists` rejects for such a folder alone. It is allowed as
+  // typed, and the connector, which can see it, checks it whenever a run
+  // would start there.
+  const isCloud = stat === undefined && isAbsolute && (await $.fs.exists(path).then(() => false, () => true))
+  if (isCloud) {
+    const clean = path.replace(/\/+$/, '')
+    await allowFolder($, clean, true)
+    runsNote = `Allowed: ${clean}, and every folder inside it. It is kept in the cloud, so it was not checked here: if it is not a folder on this computer, runs there are refused.`
+    $.ui.invalidate('ui.render')
+
+    return
+  }
   if (stat === undefined || stat.kind !== 'dir') {
     runsNote = `"${text}" is not a folder on this computer. Type its full path, or one starting with ~/.`
     $.ui.invalidate('ui.render')

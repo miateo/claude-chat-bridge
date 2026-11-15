@@ -28,9 +28,11 @@ const stage = (
 
     return { value: undefined }
   })
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', (_, e) => (String(e.path).startsWith('/cloud') ? { deny: 'a network location is not reached from here' } : { value: false }))
   // /work and what is under it are folders; nothing else exists.
   on('fs.stat', (_, e) => {
+    // A folder kept in iCloud Drive: Claude Code refuses to look into it.
+    if (String(e.path).startsWith('/cloud')) return { deny: 'a network location is not reached from here' }
     if (!String(e.path).startsWith('/work')) throw new Error('ENOENT')
 
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } }
@@ -255,6 +257,10 @@ test('background runs stay off until a code is set, then turn on for allowed fol
   await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/work' })
 
   expect(config().runs.folders[1]).toBe('/work')
+  // A folder in iCloud Drive is allowed as typed: the connector checks it.
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/cloud/Documents/' })
+
+  expect(config().runs.folders[2]).toBe('/cloud/Documents')
 
   // A run's actions are the person's to approve unless they choose auto mode.
   expect(config().runs.mode).toBe(undefined)
@@ -272,7 +278,7 @@ test('background runs stay off until a code is set, then turn on for allowed fol
 
   await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-remove-0' })
 
-  expect(config().runs.folders.length).toBe(1)
+  expect(config().runs.folders.length).toBe(2)
   await ui.unmount()
 })
 
