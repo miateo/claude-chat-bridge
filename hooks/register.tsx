@@ -325,7 +325,7 @@ function summary(): string {
 }
 
 type RawRuns = { enabled?: unknown; folders?: unknown; code?: unknown; codeHash?: unknown; salt?: unknown; mode?: unknown }
-type RawConfig = { runs?: RawRuns; subagentModel?: unknown }
+type RawConfig = { runs?: RawRuns; subagentModel?: unknown; autoUpdate?: unknown }
 
 async function readConfig($: EngineInterface): Promise<RawConfig> {
   const dir = await directory($)
@@ -342,6 +342,7 @@ function folderList(raw: RawRuns): string[] {
 
 async function loadRuns($: EngineInterface): Promise<void> {
   await loadSubagentModel($)
+  await loadUpdate($)
   const raw = (await readConfig($)).runs ?? {}
   const hasCode = (typeof raw.code === 'string' && raw.code !== '') || typeof raw.codeHash === 'string'
   const mode: RunMode = raw.mode === 'auto' || raw.mode === 'balanced' ? raw.mode : 'ask'
@@ -392,6 +393,43 @@ async function cycleSubagentModel($: EngineInterface): Promise<void> {
   await $.fs.write(`${dir}/config.json`, JSON.stringify(next === '' ? rest : { ...rest, subagentModel: next }))
   subagentModel = next
   $.ui.invalidate('ui.render')
+}
+
+// Updating itself: the person's switch, kept in config.json, and what the
+// connector last did about it, in update.json. The connector does the work.
+type UpdateStatus = { version?: string; checkedAt?: number; state?: string; message?: string }
+let isAutoUpdate = false
+let updateStatus: UpdateStatus = {}
+
+async function loadUpdate($: EngineInterface): Promise<void> {
+  isAutoUpdate = (await readConfig($)).autoUpdate === true
+  const dir = await directory($)
+  updateStatus = await $.fs
+    .read(`${dir}/update.json`)
+    .then(text => JSON.parse(text) as UpdateStatus)
+    .catch(() => ({}))
+}
+
+async function toggleAutoUpdate($: EngineInterface): Promise<void> {
+  const dir = await directory($)
+  const { autoUpdate: _old, ...rest } = await readConfig($)
+  const isOn = !isAutoUpdate
+  await $.fs.write(`${dir}/config.json`, JSON.stringify(isOn ? { ...rest, autoUpdate: true } : rest))
+  isAutoUpdate = isOn
+  $.ui.invalidate('ui.render')
+}
+
+function updateNote(): string {
+  const at = typeof updateStatus.version === 'string' ? `Version ${updateStatus.version}. ` : ''
+  if (!isAutoUpdate) {
+    return `${at}Off: you update by pulling the chat-bridge folder. On: the connector pulls the official repository's main branch once a day, while the desktop app runs. It then runs that code without anyone checking it first, so turn it on only if you trust the repository's owner.`
+  }
+  const last =
+    typeof updateStatus.checkedAt === 'number' && typeof updateStatus.message === 'string'
+      ? ` Last check ${new Date(updateStatus.checkedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC: ${updateStatus.message}`
+      : ' The first check runs within the hour, while the desktop app is open.'
+
+  return `${at}The connector pulls the official repository's main branch once a day, only as a clean fast-forward.${last} For the whole computer.`
 }
 
 async function toggleRunMode($: EngineInterface): Promise<void> {
@@ -451,10 +489,10 @@ async function addFolder($: EngineInterface, typed: string): Promise<void> {
 // The settings every session shares (the saved defaults, background runs) as
 // they are on disk now: another session, or the connector, may have changed them.
 async function refresh($: EngineInterface): Promise<void> {
-  const before = JSON.stringify([defaults, runs, subagentModel])
+  const before = JSON.stringify([defaults, runs, subagentModel, isAutoUpdate, updateStatus])
   await loadDefaults($)
   await loadRuns($)
-  if (JSON.stringify([defaults, runs, subagentModel]) !== before) $.ui.invalidate('ui.render')
+  if (JSON.stringify([defaults, runs, subagentModel, isAutoUpdate, updateStatus]) !== before) $.ui.invalidate('ui.render')
 }
 
 async function openBar($: EngineInterface, isOpen: boolean): Promise<void> {
@@ -552,6 +590,18 @@ function settings($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
             ? 'Same model: Claude Code uses subagents as it sees fit. Press to have relayed messages and background runs hand searching and reading to a cheaper model.'
             : `Relayed messages and background runs hand searching, reading and test runs to subagents on ${SUBAGENT_LABEL[subagentModel] ?? subagentModel}, and keep only their conclusions. The chat can still choose otherwise for one message. For every session on this computer.`}
         </Text>
+      </Box>
+      <Box flexDirection="column" rowGap="sm">
+        <Box gap={1} alignItems="center">
+          <Text bold>Update automatically</Text>
+          <Button
+            key="toggle-auto-update"
+            label={isAutoUpdate ? 'On' : 'Off'}
+            variant={isAutoUpdate ? 'primary' : 'secondary'}
+            onPress={() => toggleAutoUpdate($)}
+          />
+        </Box>
+        <Text dimColor>{updateNote()}</Text>
       </Box>
       <Box flexDirection="column" rowGap="sm">
         <Box gap={1} alignItems="center">

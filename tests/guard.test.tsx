@@ -43,6 +43,7 @@ const stage = (
   on('fs.read', (_, e) => {
     // The config file is what the mod last wrote, or missing; any other
     // read is the one message in the inbox.
+    if (String(e.path).endsWith('/update.json')) throw new Error('ENOENT')
     if (String(e.path).endsWith('/config.json')) {
       const config = written.get(e.path)
       if (config === undefined) throw new Error('ENOENT')
@@ -336,4 +337,25 @@ test('a background run in the desktop app does not listen by itself', async ($, 
   await settle()
 
   expect(submitted.length).toBe(0)
+})
+
+test('updating automatically is off until switched on, and keeps the other settings', async ($, on) => {
+  const submitted: { text: string }[] = []
+  const { written } = stage(on, submitted, 'other')
+  const config = () => JSON.parse(written.get('/tmp/chat-bridge-test-home/.claude/chat-bridge/config.json') ?? '{}')
+  await $.session.start({ cwd: '/work/site', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...MENU, surface: 'desktop' })
+
+  expect((await ui.find({ type: 'Button', key: 'toggle-auto-update' }))?.text).toBe('Off')
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/work' })
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-auto-update' })
+
+  expect((await ui.find({ type: 'Button', key: 'toggle-auto-update' }))?.text).toBe('On')
+  expect(config().autoUpdate).toBe(true)
+  expect(config().runs.folders[0]).toBe('/work')
+  await $.ui.press({ plugin: 'chat-bridge', key: 'toggle-auto-update' })
+
+  expect(config().autoUpdate).toBe(undefined)
+  expect(config().runs.folders[0]).toBe('/work')
+  await ui.unmount()
 })

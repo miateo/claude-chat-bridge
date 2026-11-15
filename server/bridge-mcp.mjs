@@ -21,11 +21,11 @@
 // The folder is the whole trust boundary: whatever can write to inbox/ can
 // prompt a listening session. It is kept private to the user (mode 700).
 
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, chmodSync, closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 
@@ -438,6 +438,71 @@ const recentRuns = () => {
     .filter(run => run && typeof run.sessionId === 'string' && Date.now() - (run.lastAt ?? run.at ?? 0) < STALE_MS)
     .sort((a, b) => (b.lastAt ?? b.at) - (a.lastAt ?? a.at))
     .slice(0, 8)
+}
+
+// ---- Updating itself (off unless the person turns it on) -------------------
+// With "Update automatically" on, the connector fast-forwards this clone to the
+// main branch of the official repository, at most once a day. Only a clean
+// fast-forward is taken: local changes, another branch or another origin make
+// it stop and say why. New Claude Code sessions then load the new mod; the
+// connector itself is loaded again when the desktop app restarts.
+
+// CHAT_BRIDGE_ROOT stands in for the clone in tests.
+const ROOT = process.env.CHAT_BRIDGE_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..')
+const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000
+const OFFICIAL = /github\.com[:/]miateo\/claude-chat-bridge(\.git)?\/?$/i
+const UPDATE_PATH = join(DIR, 'update.json')
+
+const version = () => readJson(join(ROOT, '.claude-plugin', 'plugin.json'))?.version
+
+const gitBinary = () =>
+  ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git', 'C:\\Program Files\\Git\\cmd\\git.exe'].find(path => real(path) !== undefined) ?? 'git'
+
+const git = args =>
+  new Promise(resolve =>
+    execFile(gitBinary(), ['-C', ROOT, ...args], { timeout: 60_000, windowsHide: true }, (error, stdout, stderr) =>
+      resolve({ isOk: !error, out: String(stdout ?? '').trim(), err: String(stderr || error?.message || '').trim() }),
+    ),
+  )
+
+let isUpdating = false
+
+const updateItself = async () => {
+  if (isUpdating) return
+  const held = readJson(UPDATE_PATH) ?? {}
+  const isOn = readJson(join(DIR, 'config.json'))?.autoUpdate === true
+  if (!isOn || Date.now() - (held.checkedAt ?? 0) < UPDATE_EVERY_MS) {
+    if (held.version !== version()) writeJson(UPDATE_PATH, { ...held, version: version() })
+    return
+  }
+  isUpdating = true
+  const settle = (state, message, extra = {}) => {
+    writeJson(UPDATE_PATH, { checkedAt: Date.now(), version: version(), state, message, ...extra })
+    log({ event: 'update', state, message, ...extra })
+  }
+  try {
+    const origin = await git(['remote', 'get-url', 'origin'])
+    if (!origin.isOk) return settle('skipped', 'This chat-bridge folder is not a git clone, so it cannot update itself. Clone it from GitHub and run install.mjs.')
+    if (!OFFICIAL.test(origin.out)) return settle('skipped', `This clone's origin is ${origin.out}, not github.com/miateo/claude-chat-bridge, so it is not updated automatically.`)
+    const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
+    if (branch.out !== 'main') return settle('skipped', `This clone is on "${branch.out}", not main, so it is not updated automatically.`)
+    const status = await git(['status', '--porcelain', '--untracked-files=no'])
+    if (!status.isOk || status.out !== '') return settle('skipped', 'This clone has local changes, so it is not updated automatically.')
+    const from = (await git(['rev-parse', 'HEAD'])).out
+    const before = version()
+    const fetched = await git(['fetch', '--quiet', 'origin', 'main'])
+    if (!fetched.isOk) return settle('failed', `Could not reach GitHub: ${fetched.err.slice(0, 200)}`)
+    const merged = await git(['merge', '--ff-only', '--quiet', 'FETCH_HEAD'])
+    if (!merged.isOk) return settle('skipped', 'The new version is not a plain fast-forward of this clone, so it was left alone.')
+    const to = (await git(['rev-parse', 'HEAD'])).out
+    if (to === from) return settle('current', 'Up to date.')
+    settle('updated', `Updated from ${before ?? from.slice(0, 7)} to ${version() ?? to.slice(0, 7)}. New Claude Code sessions use it; restart the desktop app to load the new connector.`, {
+      from: from.slice(0, 12),
+      to: to.slice(0, 12),
+    })
+  } finally {
+    isUpdating = false
+  }
 }
 
 // ---- Session history -------------------------------------------------------
@@ -925,6 +990,13 @@ const gateTools = {
 
 const served = gateDir === undefined ? tools : gateTools
 
+// The connector proper checks for an update soon after it starts and then every
+// hour; the once-a-day limit is kept in update.json.
+if (gateDir === undefined) {
+  setTimeout(() => void updateItself().catch(() => {}), 5_000).unref()
+  setInterval(() => void updateItself().catch(() => {}), 60 * 60 * 1000).unref()
+}
+
 // What the chat reads about this connector as a whole, beside its tools: the
 // place to say when to reach for it instead of the app's own file access.
 const INSTRUCTIONS = [
@@ -955,7 +1027,7 @@ const handle = async ({ id, method, params }) => {
         result: {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: gateDir === undefined ? 'chat-bridge' : 'chat-bridge-gate', version: '0.13.0' },
+          serverInfo: { name: gateDir === undefined ? 'chat-bridge' : 'chat-bridge-gate', version: version() ?? '0.14.0' },
           ...(gateDir === undefined ? { instructions: INSTRUCTIONS } : {}),
         },
       })

@@ -11,7 +11,7 @@ It has two halves:
 - **The connector** (`server/bridge-mcp.mjs`): a small local MCP server the desktop chat calls. Tools for sessions: `ask_claude_code`, `get_claude_code_reply`, `claude_code_status`, `read_claude_code_session`. Tools for background runs: `start_claude_code_run`, `continue_claude_code_run`, `get_claude_code_run`, `approve_claude_code_action`.
 - **The mod** (`hooks/register.tsx`): a Claude Code plugin that adds the `/chat-bridge` command and its settings menu. While on, the session listens under a name, runs each message the chat sends to that name as a prompt, and sends the final answer back.
 
-Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer.
+Messages travel as files under `~/.claude/chat-bridge`. The bridge itself opens no network port and sends nothing off the computer; the one exception is fetching updates from GitHub, if you turn that on.
 
 > Experimental and unofficial. It is built on Claude Code's early-access mod API, which changes between releases, and has been run on macOS only. It lets one AI model give instructions to another that can run commands on your computer: read [Security](#security) and the [Disclaimer](#disclaimer) before turning it on.
 
@@ -144,6 +144,7 @@ A message that comes over the bridge was written by another model. If that chat 
 - **Private to your user.** The bridge folder is created with mode 700 and tightened if it is looser. Anything that can write to `~/.claude/chat-bridge/inbox` can prompt a listening session, so a program already running as you can; the bridge adds no protection against that.
 - **Logged.** Every message sent and answer read is appended to `~/.claude/chat-bridge/log.jsonl` (rotated at 2 MB).
 - **Bounded.** Messages over 20,000 characters are refused.
+- **Updates are yours to turn on.** Nothing is fetched from the internet unless you switch on Update automatically (see [Update](#update)).
 
 What it does not protect:
 
@@ -187,7 +188,15 @@ claude plugin test .
 
 ## Update
 
-Nothing updates by itself. On each computer, pull the clone; the mod and the connector both run from it. Then start a new Claude Code session for the mod, and quit and reopen the desktop app for the connector.
+The mod and the connector both run from the cloned folder, so updating means updating that folder.
+
+**Automatically (off by default).** Switch on **Update automatically** in the settings. While the desktop app runs, the connector then checks GitHub once a day and fast-forwards the clone to the main branch of `miateo/claude-chat-bridge`. It leaves the clone alone, and says why in the settings, if the clone has local changes, is on another branch or comes from another origin. New Claude Code sessions use the new mod; the new connector loads when you quit and reopen the desktop app. The settings show the version and the last check, and every update is in the audit log.
+
+Turning it on means running new code from this repository without reviewing it first: if the repository were ever compromised, so would be every computer that updates from it. Turn it on only if you accept that.
+
+Versions before 0.14.0 cannot update themselves: update once by hand to get the switch.
+
+**By hand.** Pull the clone, then start a new Claude Code session and quit and reopen the desktop app:
 
 ```bash
 git -C claude-chat-bridge pull
