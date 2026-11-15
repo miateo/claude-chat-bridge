@@ -261,6 +261,10 @@ test('background runs stay off until a code is set, then turn on for allowed fol
   await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/cloud/Documents/' })
 
   expect(config().runs.folders[2]).toBe('/cloud/Documents')
+  // A path pasted from a terminal, with its backslash escapes, is read as the path it spells.
+  await $.ui.input({ plugin: 'chat-bridge', key: 'run-folder-new', text: '/cloud/Mobile\\ Documents/com\\~apple\\~CloudDocs/WORK' })
+
+  expect(config().runs.folders[3]).toBe('/cloud/Mobile Documents/com~apple~CloudDocs/WORK')
 
   // A run's actions are the person's to approve unless they choose auto mode.
   expect(config().runs.mode).toBe(undefined)
@@ -278,7 +282,7 @@ test('background runs stay off until a code is set, then turn on for allowed fol
 
   await $.ui.press({ plugin: 'chat-bridge', key: 'run-folder-remove-0' })
 
-  expect(config().runs.folders.length).toBe(2)
+  expect(config().runs.folders.length).toBe(3)
   await ui.unmount()
 })
 

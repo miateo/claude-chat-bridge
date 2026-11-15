@@ -1,6 +1,6 @@
 {
   "name": "chat-bridge",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "Lets a normal Claude chat send messages to this Claude Code session and read its answers, through a local connector.",
   "author": { "name": "miateo" },
   "repository": "https://github.com/miateo/claude-chat-bridge",

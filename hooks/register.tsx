@@ -472,10 +472,24 @@ function isProjectFolder(folder: string): boolean {
 
 // A folder typed into the settings: "~" is the home folder, and it has to be
 // a folder that exists. Stored as the path it really is.
+// A folder as typed or pasted, made a plain path: quotes around it and a
+// terminal's backslash escapes (\\ before a space or a ~) are taken off, ~ is
+// the home folder, and a home path written after ~ ("~/Users/me/x") is read
+// as the path it spells.
+function folderPath(text: string, home: string): string {
+  const unquoted = text.replace(/^(['"])(.*)\1$/, '$2')
+  const isWindows = /^[A-Za-z]:[\\/]/.test(unquoted)
+  const plain = isWindows ? unquoted : unquoted.replace(/\\(.)/g, '$1')
+  if (home !== '' && (plain.startsWith(`~${home}/`) || plain === `~${home}`)) return plain.slice(1)
+  if (plain === '~') return home
+
+  return plain.startsWith('~/') ? `${home}${plain.slice(1)}` : plain
+}
+
 async function addFolder($: EngineInterface, typed: string): Promise<void> {
   const home = ((await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? '').replaceAll('\\', '/')
   const text = typed.trim()
-  const path = text === '~' ? home : text.startsWith('~/') ? `${home}${text.slice(1)}` : text
+  const path = folderPath(text, home)
   const isAbsolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
   const stat = isAbsolute ? await $.fs.stat(path, { resolve: true }).catch(() => undefined) : undefined
   // Claude Code will not look into a folder it counts as a network location
